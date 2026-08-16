@@ -1,0 +1,54 @@
+{
+  "name": "evenkeel",
+
+  // The compose file the repository already ships, not a second definition of
+  // the stack. A devcontainer that describes its own Postgres is a third place
+  // for the database version to drift.
+  "dockerComposeFile": ["../compose.yml", "docker-compose.extend.yml"],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    // uv is how everything in this repository is run; the image would
+    // otherwise have Python and no way to install anything with the lockfile.
+    "ghcr.io/va-h/devcontainers-features/uv:1": { "version": "latest" },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Runs once, after the container is built: the same command a laptop runs.
+  "postCreateCommand": "make sync && uv run alembic upgrade head",
+
+  // Codespaces forwards these; the labels are what the ports panel shows.
+  "forwardPorts": [8000, 5432],
+  "portsAttributes": {
+    "8000": { "label": "API", "onAutoForward": "notify" },
+    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        // Ruff, not black or isort: one formatter, the one CI checks against.
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": { "source.organizeImports.ruff": "explicit" }
+        }
+      }
+    }
+  },
+
+  // Not root. The image the repository ships runs as an unprivileged user and
+  // a development environment that does not is a development environment where
+  // permission bugs are invisible until deployment.
+  "remoteUser": "vscode"
+}

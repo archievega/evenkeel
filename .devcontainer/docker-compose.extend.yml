@@ -1,0 +1,37 @@
+# The development container, layered onto the compose file the repository
+# already ships rather than replacing it.
+#
+# Two things this does not do. It does not redefine Postgres — that would be a
+# third place for the version to drift, after `compose.yml` and the CI service
+# container. And it does not run the API: inside a devcontainer you want a shell
+# and `make run` under your own hands, not a server started behind your back
+# whose port you then fight over.
+services:
+  dev:
+    image: mcr.microsoft.com/devcontainers/python:1-3.13-bookworm
+    volumes:
+      - ..:/workspace:cached
+      # The daemon from the host, so `make test-integration`, `make demo` and
+      # the load profile all work — every one of them shells out to docker.
+      - /var/run/docker.sock:/var/run/docker-host.sock
+    command: sleep infinity
+    environment:
+      APP__APP__ENVIRONMENT: local
+      APP__APP__LOGGING__JSON_LOGS: "false"
+      # `db` is the service in compose.yml, reachable by name on this network.
+      APP__DATABASE__HOST: db
+      APP__DATABASE__USER: evenkeel
+      APP__DATABASE__PASSWORD: evenkeel
+      APP__DATABASE__DATABASE: evenkeel
+      # Integration tests take this over testcontainers when it is set, which
+      # saves starting a second Postgres inside a container that already has one
+      # next door.
+      TEST_DATABASE_URL: postgresql+asyncpg://evenkeel:evenkeel@db:5432/evenkeel
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Started by the devcontainer, not published to the host: the API is a
+  # `make run` away, and the port is forwarded by the editor when it is.
+  api:
+    profiles: [never-in-devcontainer]

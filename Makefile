@@ -43,7 +43,7 @@ step = @printf '$(CYAN)$(BOLD)▸$(RESET) $(BOLD)%s$(RESET)\n' $(1)
 GATES := lint arch types schema-check test
 
 .PHONY: help sync fmt lint arch types schema schema-check test test-integration \
-	check run run-mcp migrate revision new-vertical demo load clean
+	check run run-mcp migrate revision new-vertical docs demo load clean
 
 ##@ General
 
@@ -160,6 +160,10 @@ new-vertical: ## Scaffold a vertical across the layers: make new-vertical NAME=o
 schema: ## Regenerate the committed OpenAPI document
 	$(call step,schema)
 	$(UV) run python tools/dump_openapi.py
+
+docs: ## Build the static API reference into site/
+	$(call step,docs)
+	@$(UV) run python tools/build_docs.py
 
 demo: ## Re-record docs/demo.gif (needs a running stack)
 	$(call step,demo)

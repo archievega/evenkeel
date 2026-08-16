@@ -28,6 +28,11 @@ method rather than a rewrite.
 docker compose up
 ```
 
+Or without installing anything: **Code → Codespaces → Create codespace**. The
+devcontainer brings up Postgres, installs the environment and applies the
+migrations, so the first thing that happens is a working stack rather than a
+dependency error.
+
 ![A terminal session against the running API: opening a wallet, a deposit, an
 overdraft refused as an RFC 9457 problem document, a retry that replays instead
 of moving money twice, and another owner's wallet answering 404](docs/demo.gif)
@@ -172,6 +177,12 @@ Three renderings of the same document, on a local run only:
 | `/scalar` | search, a working request client, dark mode |
 | `/docs` | Swagger UI |
 | `/redoc` | ReDoc |
+
+`make docs` builds the same reference as a static page — the deploy refuses to
+publish a document that disagrees with the application, so a page that ships is
+also proof the spec is current. The CDN script is version-pinned with an
+integrity hash, checked against the file actually served by
+`tests/unit/test_docs_page.py`.
 
 `openapi.json` is committed. CI regenerates it and fails if it drifts — the same
 treatment migrations get — and runs [oasdiff](https://github.com/oasdiff/oasdiff)

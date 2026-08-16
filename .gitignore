@@ -19,3 +19,6 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Built by `make docs`; published by the docs workflow, never committed.
+site/
