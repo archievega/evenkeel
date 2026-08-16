@@ -95,51 +95,6 @@ design and it is worth stating — but it was an accident of ordering, not a
 decision, until this run made it visible. Move the check after the wallet is
 loaded and run C again: the guarantee disappears.
 
-### The circuit breaker was deleted, and this is the run that did it
-
-The most useful thing these runs produced. The breaker started as a
-consecutive-failure counter; a load run showed it opening on a provider that was
-still working, so it was rebuilt as a sliding-window failure rate with a minimum
-call count — the textbook fix, and better reasoning in every respect. Then the
-same workload was run against all three options.
-
-Provider failing 55% of attempts — degraded, but useful:
-
-| | movements applied |
-| --- | --- |
-| consecutive-failure breaker (5 in a row) | 547 |
-| sliding-window rate (50% over 10s, min 20 calls) | **1** |
-| no breaker, bulkhead only | **1950** |
-
-The repaired version is worse than the broken one, and both are far worse than
-nothing. A rate breaker cannot be fooled by the order failures arrive in, which
-makes it *more* decisive about a dependency whose failure rate sits near the
-threshold — precisely where being decisive is wrong. Both versions behaved
-exactly as designed. The design was the problem.
-
-The case for the breaker is a provider that is fully down:
-
-| | write p95 | calls sent to the dead provider |
-| --- | --- | --- |
-| with breaker | 1.0ms | 5 |
-| bulkhead only | 56.5ms | 4040 |
-
-Real, and worth about 55ms per refusal — because the bulkhead already refuses
-immediately rather than queueing, which is the property that actually matters.
-Note what this run does not cover: the stopped provider refused connections,
-which is the cheap failure. A blackholed one costs the connect timeout instead
-and the breaker's advantage there is larger; the honest way to settle that is a
-run with a DROP rule, not an argument.
-Set against 1950 lost movements in the degraded case, plus a state machine whose
-probe permits, window resets and cancelled-probe handling produced three bugs
-while being written, it does not pay for itself. Removed; the reasoning is
-[ADR 6](../../docs/adr/0006-outbound-calls.md).
-
-Worth being precise about what this is not: it is not "circuit breakers are
-bad". It is that this dependency is slow-or-down rather than harmed-by-traffic,
-and a guard should be justified by the failure it prevents rather than by being
-a well-known pattern.
-
 ### Two 503s that mean opposite things look identical from outside
 
 `bulkhead_full`, `timeout` and `budget_exhausted` all reach the client as

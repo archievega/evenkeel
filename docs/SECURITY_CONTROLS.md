@@ -104,7 +104,7 @@ Closed by the outbound slice (2026-08-16):
   caller: a metric that could not be seen. A load run made this concrete —
   `bulkhead_full`, `timeout` and `budget_exhausted` all reach the client as the
   same 503, and two runs were interpreted wrongly before the Prometheus adapter
-  existed. It is also what retired the circuit breaker. See `tools/load/README.md`.
+  existed. See `tools/load/README.md`.
 - Four Redis clients were constructed by DI providers that `return`ed rather
   than `yield`ed, so nothing closed them at shutdown.
 - The movement rate limit was a literal in application code with no way to reach

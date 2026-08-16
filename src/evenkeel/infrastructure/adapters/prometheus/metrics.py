@@ -79,8 +79,7 @@ class PrometheusMetrics(MetricsPort):
         # The one this file was written for. `outcome` separates `success`,
         # `timeout`, `server_error`, `bulkhead_full` and `budget_exhausted` —
         # the distinction the client cannot see, and the only way to know which
-        # guard fired. It is also what retired the circuit breaker: with these
-        # counters the breaker's cost was visible, and it was not worth paying.
+        # guard fired.
         self._external_calls = Counter(
             "evenkeel_external_call_total",
             "Calls to a dependency, by outcome.",

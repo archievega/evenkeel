@@ -43,7 +43,7 @@ things that only show up after a service has been in production for a while:
 | Errors | RFC 9457 Problem Details from a single handler, status code declared on the error class |
 | Metrics | route templates as labels, never raw paths — the standard way to melt Prometheus |
 | Secrets | redaction lives in the log pipeline, not at call sites |
-| Outbound calls | timeout, budget, bulkhead, jittered retry, size cap — measured, and the circuit breaker deleted because the measurement said so |
+| Outbound calls | timeout, budget, concurrency cap, jittered retry, size cap — with the cost of each one measured under load |
 | Architecture | layering is enforced by `import-linter` in CI, not by a README promise |
 
 ## Architecture
@@ -113,17 +113,11 @@ The guards, and what each one covers:
 | retries with full jitter, honouring `Retry-After` | only where a retry can succeed; never a 400, never a malformed 200 |
 | response size cap | a broken upstream cannot spend this process's memory |
 
-**No circuit breaker.** There was one, then a better one, and both were deleted
-after a load run: against a provider failing 55% of calls the rate-based version
-cut successful movements from 1950 to 1, and against a dead provider it saved
-55ms per refusal that the bulkhead was already making cheap. The numbers and the
-argument are in [ADR 6](docs/adr/0006-outbound-calls.md) — kept, because a
-removed mechanism with evidence is worth more than a present one without.
 
 `docker compose --profile load up` starts a stub provider with dials for
 latency, failure rate and refusal rate, and `tools/load/wallets.js` drives it
-under k6. The measurements — including the one that contradicted a docstring and
-the one that retired the circuit breaker — are in
+under k6. The measurements — including the one that contradicted a docstring in
+this repository — are in
 [tools/load/README.md](tools/load/README.md), and the reasoning is
 [ADR 6](docs/adr/0006-outbound-calls.md).
 

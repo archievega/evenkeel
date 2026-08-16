@@ -2,9 +2,9 @@
 """A stand-in for the risk provider, with a dial for how badly it behaves.
 
 Exists so the resilience code can be *demonstrated* rather than asserted. A
-bulkhead that has never shed anything and a circuit breaker that has never
-opened are decoration; pointing the service at this and turning `LATENCY_MS` up
-is how you find out whether they do what their docstrings claim.
+concurrency cap that has never shed anything is decoration; pointing the service
+at this and turning `LATENCY_MS` up is how you find out whether it does what its
+docstring claims.
 
     LATENCY_MS=2000 python tools/load/risk_provider.py   # slow, never fails
     FAILURE_RATE=1.0 python tools/load/risk_provider.py  # down

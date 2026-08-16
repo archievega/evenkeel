@@ -59,62 +59,6 @@ In the order they apply:
 4. **A response size cap**, read incrementally, so a broken or hostile upstream
    cannot spend this process's memory.
 
-### There is no circuit breaker, and that is the decision
-
-It was built, twice, and removed after being measured. The full runs are in
-`tools/load/README.md`; this is what they showed.
-
-Against a provider failing 55% of attempts — degraded, but still doing useful
-work — at 200 requests per second for 20 seconds:
-
-| | movements applied |
-| --- | --- |
-| consecutive-failure breaker (5 in a row) | 547 |
-| sliding-window failure rate (50% over 10s, min 20 calls) | **1** |
-| no breaker, bulkhead only | **1950** |
-
-The second row is the fix for the first row's known flaw, and it is worse. That
-is the finding. A rate breaker is strictly better reasoning — it cannot be fooled
-by the order failures arrive in — and it makes the mechanism *more* decisive
-about a dependency whose failure rate sits near the threshold, which is exactly
-where being decisive is wrong. Both versions are working as designed; the design
-is the problem.
-
-Against a provider that is fully stopped:
-
-| | write p95 | calls sent to the dead provider |
-| --- | --- | --- |
-| with breaker | 1.0ms | 5 |
-| bulkhead only | 56.5ms | 4040 |
-
-This is the breaker's real case, and it is worth about 55 milliseconds per
-refusal. The bulkhead already delivers the property that matters — a refusal
-costs nothing and in-flight calls are bounded — because it refuses immediately
-instead of queueing. What the breaker adds on top is that it stops sending
-traffic at a service that is down, which is genuine but modest: the bulkhead
-caps that traffic at 32 concurrent regardless.
-
-One limit of that measurement, stated because it cuts the other way: the stopped
-provider *refused* connections, which is fast. A blackholed one — SYN dropped,
-no RST — costs the connect timeout instead, twice, and there the breaker's
-advantage is larger than 55ms. The bulkhead still refuses the majority of
-callers instantly in that case, because it does not queue; what grows is the
-cost paid by the 32 callers holding slots. Worth re-running with a DROP rule
-before deploying this against a dependency that fails that way.
-
-So: a mechanism that helps by 55ms in the rare case, costs 1950x throughput in
-the common one, and is by some distance the most intricate code in this slice —
-a state machine with probe permits, a sliding window, and edge cases around
-cancelled probes and window resets, three of which were bugs found while writing
-it. Removed.
-
-**What would bring it back.** A dependency where calling a failing instance is
-itself harmful — one that charges per request, or whose recovery is prevented by
-the load — rather than merely slow. That is a real category, and the argument
-for a breaker there is about protecting *them*, not us. It is not this
-dependency, and a template should not ship a guard for a situation it does not
-have.
-
 ### The call happens before the lock and before the transaction
 
 Holding a per-wallet lock across a call to someone else's service is how one
@@ -138,6 +82,18 @@ chose the amount — so it is answered plainly. The provider's stated reason sta
 server-side: it names the rule that fired, and telling a caller which rule
 refused them turns every refusal into tuning feedback for whoever is probing.
 
+## Alternatives considered
+
+**A circuit breaker.** Prototyped and not shipped. On this dependency the
+bulkhead already provides what the breaker would: a refusal costs nothing
+because excess callers are turned away rather than queued, and in-flight calls
+are bounded. What the breaker added on measurement was around 55ms per refusal
+against a fully dead provider, and a large loss of throughput against a
+degraded-but-usable one, in exchange for the most intricate state machine in the
+slice. It becomes worth revisiting for a dependency where calling a failing
+instance is itself harmful — one that charges per request, or whose recovery is
+prevented by the load — which this one is not.
+
 ## Consequences
 
 Measured, not assumed — the full run is in `tools/load/README.md`.
@@ -147,11 +103,8 @@ Measured, not assumed — the full run is in `tools/load/README.md`.
 median, against 449ms with no bulkhead, where every caller pays the provider's
 latency before being told no.
 
-**A guard is only worth what it is measured to be worth.** The circuit breaker
-was in the first version of this slice, was rebuilt when the first version's
-flaw showed up in a load run, and was then deleted when the rebuild measured
-worse than having nothing. Two implementations, both correct, both retired by
-the same numbers. See above.
+**A guard is only worth what it is measured to be worth**, which is why the
+prototype above is not in the codebase.
 
 **A 503 does not say which guard fired, and that is correct but expensive.**
 `bulkhead_full`, `timeout` and `budget_exhausted` are indistinguishable from

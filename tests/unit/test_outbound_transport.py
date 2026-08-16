@@ -44,9 +44,9 @@ PATH = "/decisions"
 class CountingHandler:
     """Wraps a handler and remembers how often it ran.
 
-    "Did the retry happen" and "was the circuit skipped" are both questions
-    about call count, and asserting on it is the only way to tell a working
-    guard from one that silently does nothing.
+    "Did the retry happen" and "was the provider spared entirely" are both
+    questions about call count, and asserting on it is the only way to tell a
+    working guard from one that silently does nothing.
     """
 
     def __init__(self, inner: Handler) -> None:

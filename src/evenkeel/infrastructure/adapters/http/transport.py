@@ -17,12 +17,6 @@ The guarantees, in the order they apply to a call:
    process's memory.
 5. **Failures as values.** Nothing here raises; the caller gets a `JsonResponse`
    with a `failure` it can branch on.
-
-There is no circuit breaker. There was one, in two implementations, and it was
-removed after being measured — see `docs/adr/0006-outbound-calls.md`. The short
-version: against a provider failing 55% of calls it cut successful movements
-from 1950 to 1, and against a dead one it saved 55ms per refusal that the
-bulkhead was already making cheap.
 """
 
 import asyncio

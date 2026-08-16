@@ -79,8 +79,8 @@ export const options = {
     'http_req_duration{scenario:reads}': ['p(95)<150'],
     // No 5xx that is not a deliberate 503 from the risk policy.
     'http_req_failed{scenario:reads}': ['rate<0.01'],
-    // A refusal must be cheap. The whole argument for a bulkhead and a breaker
-    // is that a caller who cannot be served finds out immediately instead of
+    // A refusal must be cheap. The whole argument for the concurrency cap is
+    // that a caller who cannot be served finds out immediately instead of
     // paying the dependency's timeout to be told the same thing. Run the
     // no-guards scenario in tools/load/README.md and watch this one break: it
     // goes from single-digit milliseconds to the full retry budget.
