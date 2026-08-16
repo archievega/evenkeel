@@ -126,6 +126,10 @@ The case for the breaker is a provider that is fully down:
 
 Real, and worth about 55ms per refusal — because the bulkhead already refuses
 immediately rather than queueing, which is the property that actually matters.
+Note what this run does not cover: the stopped provider refused connections,
+which is the cheap failure. A blackholed one costs the connect timeout instead
+and the breaker's advantage there is larger; the honest way to settle that is a
+run with a DROP rule, not an argument.
 Set against 1950 lost movements in the degraded case, plus a state machine whose
 probe permits, window resets and cancelled-probe handling produced three bugs
 while being written, it does not pay for itself. Removed; the reasoning is

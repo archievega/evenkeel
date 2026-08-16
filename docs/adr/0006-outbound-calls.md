@@ -94,6 +94,14 @@ instead of queueing. What the breaker adds on top is that it stops sending
 traffic at a service that is down, which is genuine but modest: the bulkhead
 caps that traffic at 32 concurrent regardless.
 
+One limit of that measurement, stated because it cuts the other way: the stopped
+provider *refused* connections, which is fast. A blackholed one — SYN dropped,
+no RST — costs the connect timeout instead, twice, and there the breaker's
+advantage is larger than 55ms. The bulkhead still refuses the majority of
+callers instantly in that case, because it does not queue; what grows is the
+cost paid by the 32 callers holding slots. Worth re-running with a DROP rule
+before deploying this against a dependency that fails that way.
+
 So: a mechanism that helps by 55ms in the rare case, costs 1950x throughput in
 the common one, and is by some distance the most intricate code in this slice —
 a state machine with probe permits, a sliding window, and edge cases around
