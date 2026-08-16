@@ -18,9 +18,10 @@ architectural promise is enforced by a machine rather than described in this fil
 The layer rules are a CI job. The null adapters are held to the real adapters'
 contract by a shared test suite. Readiness is a query, not a constant.
 
-It runs with one command and no credentials. Every optional dependency — Redis,
-Prometheus, tracing, a message queue, an identity provider — ships a **null adapter**,
-so the core is a working API on its own and scaling up is a swap in one provider
+It runs with one command and no credentials. Every optional dependency it has —
+Redis for the lock, limiter, idempotency store and concurrency cap; Prometheus;
+the outbound risk provider; the identity provider — ships a **null adapter**, so
+the core is a working API on its own and scaling up is a swap in one provider
 method rather than a rewrite.
 
 ```bash
@@ -52,7 +53,7 @@ things that only show up after a service has been in production for a while:
 | Timezones | one `TypeDecorator` at the column boundary, so naive datetimes cannot enter |
 | Errors | RFC 9457 Problem Details from a single handler, status code declared on the error class |
 | Metrics | route templates as labels, never raw paths — the standard way to melt Prometheus |
-| Secrets | redaction lives in the log pipeline, not at call sites |
+| Secrets | redaction lives in the log pipeline, not at call sites — with the records it does not cover written down rather than glossed over |
 | Outbound calls | timeout, budget, concurrency cap, jittered retry, size cap — with the cost of each one measured under load |
 | Architecture | layering is enforced by `import-linter` in CI, not by a README promise |
 
@@ -61,7 +62,6 @@ things that only show up after a service has been in production for a while:
 ```mermaid
 flowchart TD
     HTTP[presentation/http] --> APP[application]
-    MCP[presentation/mcp] --> APP
     CLI[entrypoints] --> APP
     APP --> DOM[domain]
     INFRA[infrastructure/adapters] -.implements.-> PORTS[application/ports]
@@ -95,12 +95,13 @@ POST   /v1/wallets/{id}/deposits          credit    (accepts Idempotency-Key)
 POST   /v1/wallets/{id}/withdrawals       debit     (accepts Idempotency-Key)
 GET    /v1/wallets/{id}/entries           ledger history
 GET    /health  /ready  /version          operations
+GET    /metrics                           Prometheus, off unless enabled
 ```
 
 Every failure is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
 `application/problem+json` document, and every status the API can return is
-declared in the schema — including the 409s, the 429 and the 503 that most
-generated specs omit. Branch on `code`, never on `title`.
+declared in the schema — including the 403, the 409s, the 429 and the 503 that
+most generated specs omit. Branch on `code`, never on `title`.
 
 ## Calling other services
 
@@ -118,7 +119,7 @@ The guards, and what each one covers:
 
 | | |
 | --- | --- |
-| bulkhead, refusing rather than queueing | in-flight calls are bounded, and a caller who cannot be served finds out in microseconds |
+| bulkhead, refusing rather than queueing | in-flight calls are bounded, and a caller who cannot be served is refused in under a millisecond instead of paying the provider's latency first |
 | per-attempt timeout **and** an overall budget | the worst case is a number someone chose |
 | retries with full jitter, honouring `Retry-After` | only where a retry can succeed; never a 400, never a malformed 200 |
 | response size cap | a broken upstream cannot spend this process's memory |
@@ -170,15 +171,19 @@ the rest.
 
 ```bash
 make sync      # install
-make check     # format, lint, architecture contracts, types, tests
+make check     # lint, architecture contracts, types, schema drift, tests
 make run       # start the API
 ```
 
 ## Status
 
-Milestone 1 (core + example slice) is in place. CI, the observability slice,
-tracing, outbox, worker and MCP transport are landing next — see `docs/adr/` for the
-decisions behind each.
+In place: the core and the wallet slice, the CI pipeline the badge points at,
+the outbound-call slice with its load runs, Prometheus metrics behind
+`/metrics`, and the OpenAPI contract with its drift and breaking-change checks.
+
+Not started, and deliberately not listed above as if they were: tracing, an
+outbox, a worker, an MCP transport. The reasoning behind what is here lives in
+`docs/adr/`.
 
 ## License
 
