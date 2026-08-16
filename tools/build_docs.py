@@ -14,6 +14,7 @@ exactly as `make schema-check` fails in CI.
 """
 
 import argparse
+import hashlib
 import shutil
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ PAGE = """<!doctype html>
     </div>
     <script
       id="api-reference"
-      data-url="openapi.json"
+      data-url="openapi.json?v=__SPEC_HASH__"
       data-configuration='{"theme":"purple","darkMode":true,"hideDownloadButton":false}'
     ></script>
     <!-- Pinned and integrity-checked. An unpinned CDN tag on a public page is
@@ -93,9 +94,22 @@ def main() -> int:
         )
         return 1
 
+    # The spec is referenced with a content hash, not a bare filename.
+    #
+    # Without it the browser keeps the copy it fetched last time and the reader
+    # sees a stale document after every deploy — verified by watching exactly
+    # that happen: the CDN was serving the new spec while the page rendered the
+    # old one. Deterministic, because it is the hash of the file being
+    # published: identical builds produce an identical page, and the URL changes
+    # precisely when the contract does.
+    spec_hash = hashlib.sha256(rendered.encode()).hexdigest()[:12]
+
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "index.html").write_text(
-        PAGE.replace("__SCALAR_VERSION__", SCALAR_VERSION), encoding="utf-8"
+        PAGE.replace("__SCALAR_VERSION__", SCALAR_VERSION).replace(
+            "__SPEC_HASH__", spec_hash
+        ),
+        encoding="utf-8",
     )
     shutil.copyfile(DEFAULT_TARGET, args.out / "openapi.json")
     print(f"wrote {args.out}/index.html and {args.out}/openapi.json")

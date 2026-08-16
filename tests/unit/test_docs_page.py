@@ -39,6 +39,26 @@ def test_the_script_tag_is_pinned_and_integrity_checked() -> None:
     assert 'crossorigin="anonymous"' in rendered
 
 
+def test_the_spec_is_referenced_with_a_content_hash(tmp_path: Path) -> None:
+    """A bare `openapi.json` is served from the browser cache after a deploy,
+    so the reader gets the previous contract with no way to tell. Watched it
+    happen: the CDN had the new document while the page rendered the old one."""
+    from build_docs import main
+
+    sys.argv = ["build_docs.py", "--out", str(tmp_path)]
+    assert main() == 0
+    page = (tmp_path / "index.html").read_text()
+
+    reference = re.search(r'data-url="openapi\.json\?v=([0-9a-f]+)"', page)
+    assert reference, "the spec is referenced without a cache-busting hash"
+    assert (
+        reference.group(1)
+        == hashlib.sha256((tmp_path / "openapi.json").read_text().encode()).hexdigest()[
+            : len(reference.group(1))
+        ]
+    )
+
+
 def test_no_other_script_is_loaded_unchecked() -> None:
     rendered = PAGE.replace("__SCALAR_VERSION__", SCALAR_VERSION)
     external = re.findall(r'<script[^>]*src="(https?://[^"]+)"[^>]*>', rendered)
