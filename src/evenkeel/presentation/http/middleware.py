@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 import uuid
@@ -108,6 +109,19 @@ class ObservabilityMiddleware:
 
         try:
             await self._app(scope, receive, send_wrapper)
+        except asyncio.CancelledError:
+            # Not an `Exception` since 3.8 — it inherits `BaseException`, so the
+            # clause below never saw it and `request_started` was never paired
+            # with anything. The in-flight gauge then climbed by one per client
+            # disconnect and never came down, which is a dashboard that lies
+            # more confidently the longer it runs.
+            self._metrics.request_failed(
+                method=scope.get("method", ""),
+                handler=self._handler_label(scope),
+                exception_type="CancelledError",
+                duration_seconds=time.perf_counter() - started_at,
+            )
+            raise
         except Exception as exc:
             self._metrics.request_failed(
                 method=scope.get("method", ""),

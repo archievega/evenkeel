@@ -33,6 +33,18 @@ class Wallet(Entity[WalletId]):
         updated_at: datetime,
     ) -> None:
         super().__init__(id_=id_)
+        # Checked here, not only where money moves, because this constructor is
+        # also the read path: the repository builds every loaded row through it.
+        # ADR 2 is about exactly this — an ORM that reconstructs rows through
+        # `__new__` skips the constructor, and one of the audited codebases
+        # loaded negative balances out of the database for years without
+        # complaint. The column has a CHECK as well (ADR 4); this is the half
+        # that survives a restore from backup or a hand-written UPDATE.
+        if balance.amount < 0:
+            raise DomainError(
+                DomainErrorCode.WALLET_BALANCE_NEGATIVE,
+                {"wallet_id": str(id_.value), "balance": str(balance.amount)},
+            )
         self.owner_id = owner_id
         self.balance = balance
         self.status = status

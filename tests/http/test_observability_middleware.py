@@ -7,14 +7,17 @@ header reads as a single comma-joined value, and a wrong metric label only
 surfaces as a dashboard that quietly means something else.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
 from dishka import make_async_container
 from dishka.integrations.fastapi import FastapiProvider
 from httpx import ASGITransport, AsyncClient
+from starlette.types import Message, Receive, Scope, Send
 
 from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.presentation.http.middleware import ObservabilityMiddleware
 from evenkeel.setup.app_factory import create_app
 from evenkeel.setup.config import AppConfig, Settings
 
@@ -115,3 +118,64 @@ async def test_a_successful_response_still_carries_the_header(
 
     values = [v for k, v in response.headers.multi_items() if k == "x-correlation-id"]
     assert len(values) == 1
+
+
+class CountingMetrics(NoopMetrics):
+    """Just the three that have to balance."""
+
+    def __init__(self) -> None:
+        self.started = 0
+        self.finished = 0
+        self.failed = 0
+
+    def request_started(self) -> None:
+        self.started += 1
+
+    def request_finished(self, **_: object) -> None:
+        self.finished += 1
+
+    def request_failed(self, **_: object) -> None:
+        self.failed += 1
+
+
+async def _no_receive() -> Message:
+    raise AssertionError("the app under test should not read the body")
+
+
+async def _discard(message: Message) -> None:
+    return None
+
+
+def _http_scope() -> Scope:
+    return {"type": "http", "method": "GET", "path": "/health", "headers": []}
+
+
+@pytest.mark.parametrize(
+    ("failure", "name"),
+    [(asyncio.CancelledError, "CancelledError"), (RuntimeError, "RuntimeError")],
+)
+async def test_every_started_request_is_accounted_for(
+    failure: type[BaseException], name: str
+) -> None:
+    """`CancelledError` inherits `BaseException`, not `Exception`.
+
+    So `except Exception` never saw it: `request_started` was counted, nothing
+    was counted against it, and the in-flight gauge climbed by one per
+    disconnected client for the life of the process. Harmless while the metrics
+    port was a no-op; a lying dashboard the moment it was not.
+
+    Parametrised against an ordinary exception so the test states the invariant
+    — started and accounted-for must balance — rather than one special case.
+    """
+    metrics = CountingMetrics()
+
+    async def failing(scope: Scope, receive: Receive, send: Send) -> None:
+        raise failure
+
+    middleware = ObservabilityMiddleware(failing, metrics=metrics)
+
+    with pytest.raises(failure):
+        await middleware(_http_scope(), _no_receive, _discard)
+
+    assert metrics.started == 1
+    assert metrics.finished + metrics.failed == 1, f"{name} left the gauge stranded"

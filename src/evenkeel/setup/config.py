@@ -206,9 +206,16 @@ class McpConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
+    """Serves `/metrics` in Prometheus format when enabled.
+
+    `tracing_enabled` and `otlp_endpoint` used to sit here with no code reading
+    either. A switch that does nothing is worse than an absent one: it reads as
+    a feature in `.env.example`, and somebody eventually sets it and concludes
+    tracing is on. They come back with the OTel slice, which is when they will
+    mean something.
+    """
+
     metrics_enabled: bool = False
-    tracing_enabled: bool = False
-    otlp_endpoint: str = ""
 
 
 class Settings(BaseSettings):

@@ -37,12 +37,6 @@ dependencies = [
 [project.optional-dependencies]
 redis = ["redis>=6.0"]
 metrics = ["prometheus-client>=0.23"]
-tracing = [
-    "opentelemetry-sdk>=1.30",
-    "opentelemetry-exporter-otlp-proto-http>=1.30",
-    "opentelemetry-instrumentation-fastapi>=0.52b0",
-    "opentelemetry-instrumentation-sqlalchemy>=0.52b0",
-]
 docs = [
     "scalar-fastapi>=1.0",
 ]

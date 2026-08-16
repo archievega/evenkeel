@@ -1,5 +1,16 @@
-# Mirror of .github/workflows/ci.yml. Both pipelines run the same commands;
-# when they drift, the Makefile targets are the source of truth.
+# Mirror of .github/workflows/ci.yml, and the word is load-bearing: this file
+# claimed to be one while missing the schema-drift check, the secret scan, the
+# image scan, the smoke boot and the contract diff, and while running a
+# `pip-audit --strict` that fails here by construction. All of that is below now.
+#
+# Both pipelines invoke the same Makefile targets rather than their own copies
+# of the commands, because two copies is how the drift happened. `make` is
+# installed per job for that reason.
+#
+# One deliberate difference: GitHub carries an aggregating `gate` job so branch
+# protection has a single required check that cannot be skipped into a green
+# tick. GitLab reports pipeline status directly, so there is nothing to
+# aggregate.
 stages: [quality, verify, package]
 
 workflow:
@@ -22,26 +33,33 @@ variables:
 
 .python:
   before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends make
     - uv sync --frozen --all-extras
 
 lint:
   stage: quality
   extends: .python
   script:
-    - uv run ruff format --check src tests
-    - uv run ruff check src tests
+    - make lint
 
 architecture:
   stage: quality
   extends: .python
   script:
-    - uv run lint-imports
+    - make arch
 
 types:
   stage: quality
   extends: .python
   script:
-    - uv run mypy src
+    - make types
+
+schema:
+  stage: quality
+  extends: .python
+  script:
+    # The published contract is an artefact under review, like a migration.
+    - make schema-check
 
 test:
   stage: verify
@@ -49,8 +67,17 @@ test:
   services:
     - name: redis:7.4-alpine
       alias: redis
+    # Without this the integration tests skip themselves and the job stays
+    # green while testing none of the SQL — the difference between the two
+    # pipelines that was hardest to see.
+    - name: postgres:17.4-alpine
+      alias: postgres
   variables:
     TEST_REDIS_URL: "redis://redis:6379/0"
+    TEST_DATABASE_URL: "postgresql+asyncpg://evenkeel:evenkeel@postgres:5432/evenkeel"
+    POSTGRES_USER: evenkeel
+    POSTGRES_PASSWORD: evenkeel
+    POSTGRES_DB: evenkeel
   script:
     - uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)$/'
@@ -79,8 +106,27 @@ security:
   stage: verify
   extends: .python
   script:
-    - uv run pip-audit --strict
+    # `--skip-editable`, not `--strict`: the project installs itself in editable
+    # mode, which `--strict` treats as an unresolvable dependency and fails on
+    # every run. Documented in the GitHub workflow for the same reason.
+    - uv run pip-audit --skip-editable
     - uv run bandit -r src -c pyproject.toml
+    - uv export --frozen --format pylock.toml -o pylock.toml
+  artifacts:
+    paths: [pylock.toml]
+    expire_in: 1 week
+
+secrets:
+  stage: verify
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  variables:
+    # Full history, not the tip: a credential committed and then removed is
+    # still a credential, and the tip is exactly where it will not be.
+    GIT_DEPTH: 0
+  script:
+    - gitleaks detect --source . --no-banner --redact
 
 image:
   stage: package
@@ -100,3 +146,46 @@ image:
       --build-arg APP_COMMIT=$CI_COMMIT_SHA
       --build-arg APP_VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_REF_NAME}
       -t evenkeel:$CI_COMMIT_SHA .
+    # Fixed-only, HIGH and CRITICAL: a finding with no upstream fix is not
+    # something this build can act on, and failing on it teaches people to
+    # ignore the scanner.
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+      aquasecurity/trivy:0.58.1 image --exit-code 1 --severity HIGH,CRITICAL
+      --ignore-unfixed --no-progress evenkeel:$CI_COMMIT_SHA
+
+smoke:
+  stage: package
+  image: docker:27.4.1-cli
+  services:
+    - docker:27.4.1-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  script:
+    # A green unit suite proves the code parses. This proves the image boots,
+    # migrations apply, and the app can reach its database.
+    - docker compose up -d --build --wait
+    - docker compose exec -T api python -c "import urllib.request,sys;
+      b=urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode();
+      print(b); sys.exit(0 if '\"status\":\"ready\"' in b else 1)"
+  after_script:
+    - docker compose logs --no-color || true
+    - docker compose down -v || true
+
+contract:
+  stage: verify
+  image:
+    name: tufin/oasdiff:latest
+    entrypoint: [""]
+  rules:
+    # Only on a merge request: "does this break a consumer" needs a baseline,
+    # and on the default branch that baseline is the commit that just landed.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    - git show origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:openapi.json > /tmp/base.json
+    - oasdiff breaking /tmp/base.json openapi.json --fail-on ERR

@@ -27,18 +27,17 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - run: uv sync --frozen --all-extras
-      - run: uv run ruff format --check src tests
-      - run: uv run ruff check src tests
+      - run: make lint
       # The layer rules are a build failure, not a README paragraph.
-      - run: uv run lint-imports
+      - run: make arch
       # No `continue-on-error`. A type check that cannot fail the build is
       # documentation that happens to execute.
-      - run: uv run mypy src
+      - run: make types
       # The published contract is an artefact under review, like a migration.
       # Drift here means the API changed and the document consumers build
       # against did not.
       - name: openapi.json matches the application
-        run: uv run python tools/dump_openapi.py --check
+        run: make schema-check
 
   test:
     name: tests

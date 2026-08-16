@@ -115,3 +115,25 @@ def test_currency_code_rejects_malformed_input() -> None:
     for bad in ["eur", "EURO", "E1R", ""]:
         with pytest.raises(DomainError):
             CurrencyCode(bad)
+
+
+def test_a_negative_balance_cannot_be_constructed_at_all() -> None:
+    """The read path runs this constructor, which is the whole of ADR 2.
+
+    An ORM that rebuilds rows through `__new__` skips it, and one of the
+    audited codebases loaded negative balances out of its database for years
+    without complaint. The column carries a CHECK too; this is the half that
+    survives a restore from backup or a hand-written UPDATE.
+    """
+    with pytest.raises(DomainError) as failure:
+        Wallet(
+            id_=WalletId(uuid4()),
+            owner_id=OwnerId(uuid4()),
+            balance=Money(amount=Decimal("-0.01"), currency=EUR),
+            status=WalletStatus.OPEN,
+            version=3,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+    assert failure.value.code is DomainErrorCode.WALLET_BALANCE_NEGATIVE
