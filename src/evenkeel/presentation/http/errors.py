@@ -21,6 +21,18 @@ PROBLEM_CONTENT_TYPE = "application/problem+json"
 # wrong, and which rule rejected it. Never the value that was rejected.
 VALIDATION_ERROR_FIELDS = frozenset({"loc", "msg", "type"})
 
+# The same treatment for `DomainError.context`, which was forwarded whole.
+#
+# An allowlist rather than a denylist, for the reason every allowlist exists:
+# the next domain error adds a key, and a denylist silently publishes it. These
+# describe the *rule* that fired and the caller's own state, both of which help
+# them fix the request. What they leave out is `value` — the input that was
+# rejected, echoed back the way the pydantic path deliberately does not — and
+# `class_name`, which is an internal type name and no help to anyone outside.
+DOMAIN_CONTEXT_FIELDS = frozenset(
+    {"wallet_id", "balance", "requested", "left", "right", "max", "max_scale"}
+)
+
 # A violated domain invariant is not automatically a client mistake, so the
 # transport status is decided here rather than being carried by the domain.
 # Anything unlisted falls back to 422.
@@ -117,7 +129,11 @@ def setup_error_handlers(app: FastAPI) -> None:
             code=str(exc.code),
             title=exc.code.value.replace("_", " ").capitalize(),
             request=request,
-            details=exc.context,
+            details={
+                key: value
+                for key, value in exc.context.items()
+                if key in DOMAIN_CONTEXT_FIELDS
+            },
         )
 
     @app.exception_handler(RequestValidationError)

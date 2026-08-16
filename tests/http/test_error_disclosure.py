@@ -25,7 +25,7 @@ SECRET_IN_MESSAGE = (
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     app = create_app(
-        settings=Settings(app=AppConfig(debug=False)),
+        settings=Settings(app=AppConfig()),
         container=make_async_container(FastapiProvider()),
     )
 

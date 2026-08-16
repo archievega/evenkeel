@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from collections.abc import Mapping, Set
 from typing import Any, TextIO
@@ -37,6 +38,31 @@ def _is_sensitive(key: object) -> bool:
     )
 
 
+# `key=value` and `key: value` inside an already-formatted message. Structured
+# redaction cannot reach those: by the time a library has rendered its line, the
+# secret is a substring.
+#
+# Best-effort, and the limit is worth stating. SQLAlchemy's `echo` prints bound
+# parameters positionally — `('s3cret',)` — with no key to match on, and nothing
+# can classify that. `database.echo` is therefore refused outside a local run by
+# the boot guard rather than pretended away here.
+_INLINE_SECRET = re.compile(
+    r"(?i)\b([a-z_-]*(?:password|token|secret|api[_-]?key|authorization))"
+    r"(\s*[=:]\s*)"
+    # The scheme is kept and the credential after it replaced. Matching the
+    # first token alone redacted the word "Bearer" and published what followed,
+    # which is a redaction that reads as working and is not.
+    r"((?:Bearer|Basic|Token|Digest)\s+)?"
+    r"(\"[^\"]*\"|'[^']*'|\S+)"
+)
+
+
+def redact_message(message: str) -> str:
+    return _INLINE_SECRET.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3) or ''}{REDACTED}", message
+    )
+
+
 def redact_sensitive(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -64,6 +90,11 @@ def redaction_processor(
     `allowlisted` below instead.
     """
     redacted: EventDict = redact_sensitive(dict(event_dict))
+    # A record from a library arrives already rendered, so its secret is inside
+    # the message rather than in a field the walk above can see.
+    event = redacted.get("event")
+    if isinstance(event, str):
+        redacted["event"] = redact_message(event)
     return redacted
 
 
@@ -135,7 +166,7 @@ def setup_logging(
     )
 
     structlog.configure(
-        processors=[*shared, renderer],
+        processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping()[level.upper()]
         ),
@@ -145,12 +176,25 @@ def setup_logging(
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    logging.basicConfig(
-        format="%(message)s",
-        stream=stream or sys.stdout,
-        level=level.upper(),
-        force=True,
+    # Every record, including the ones this code did not write.
+    #
+    # `basicConfig` alone formatted structlog's output and left uvicorn's,
+    # SQLAlchemy's and every library's untouched: a second format in the same
+    # stream, and — the part that mattered — records that never met the
+    # redaction processor. `foreign_pre_chain` runs it over them too.
+    handler = logging.StreamHandler(stream or sys.stdout)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                renderer,
+            ],
+        )
     )
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level.upper())
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

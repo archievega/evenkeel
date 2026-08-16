@@ -269,6 +269,13 @@ def production_config_problems(settings: Settings) -> list[str]:
         problems.append("app.secret_key is empty or still the public default")
     if settings.database.password.get_secret_value() in {"", "evenkeel", "postgres"}:
         problems.append("database.password is empty or a well-known default")
+    if settings.database.echo or settings.database.echo_pool:
+        # SQLAlchemy's echo prints bound parameters positionally — `('s3cret',)`
+        # — with no key to match on, so no redactor can classify them. The only
+        # honest control is not running it where it matters.
+        problems.append(
+            "database.echo prints bound parameters, which no log redaction can filter"
+        )
     if settings.risk.provider == HTTP_RISK and settings.risk.base_url.startswith(
         "http://"
     ):

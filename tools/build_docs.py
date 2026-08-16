@@ -63,8 +63,10 @@ PAGE = """<!doctype html>
     ></script>
     <!-- Pinned and integrity-checked. An unpinned CDN tag on a public page is
          a standing invitation: whoever controls that URL controls what runs in
-         a reader's browser. Renovate moves the version and the hash together;
-         `tools/build_docs.py` is where both live. -->
+         a reader's browser. Both values live in `tools/build_docs.py`, and a
+         bump has to change them together — Renovate cannot compute an SRI hash
+         for a URL inside a Python string, so the guard is the test in CI that
+         recomputes it against the file the CDN actually serves. -->
     <script
       src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@__SCALAR_VERSION__/dist/browser/standalone.js"
       integrity="sha384-G6dkutu2k5IYVyNESLoFIpgaHx38IJTZ/HhrwN0fecTle9te75y8Kru3rJEJ0ZJV"

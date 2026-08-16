@@ -297,3 +297,75 @@ async def test_two_concurrent_requests_with_one_key_move_money_once(
     assert len(applied) == 1, "the movement was applied more than once"
     balance = await client.get(f"/v1/wallets/{wallet_id}", headers=auth(owner_id))
     assert balance.json()["balance"] == "1.00"
+
+
+async def test_a_domain_error_does_not_echo_the_rejected_value(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """`DomainError.context` was forwarded whole, and some of it is the input.
+
+    An invalid currency carries `value` — the string the caller sent — which is
+    the same disclosure the pydantic path is filtered to avoid. Allowlisted for
+    the same reason, and an allowlist rather than a denylist because the next
+    domain error adds a key nobody remembers to exclude.
+    """
+    response = await client.post(
+        "/v1/wallets",
+        json={"currency": "NOT-A-CURRENCY"},
+        headers=auth(owner_id),
+    )
+
+    assert response.status_code in {400, 422}
+    assert "NOT-A-CURRENCY" not in response.text
+
+
+async def test_a_domain_error_still_explains_the_rule(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """The filter has to leave the useful half: a refusal that says nothing is a
+    refusal the caller cannot act on."""
+    headers = auth(owner_id)
+    wallet = await client.post("/v1/wallets", json={"currency": "EUR"}, headers=headers)
+    wallet_id = wallet.json()["id"]
+    await client.post(
+        f"/v1/wallets/{wallet_id}/deposits",
+        json={"amount": "10.00", "currency": "EUR"},
+        headers=headers,
+    )
+
+    refused = await client.post(
+        f"/v1/wallets/{wallet_id}/withdrawals",
+        json={"amount": "99.00", "currency": "EUR"},
+        headers=headers,
+    )
+
+    assert refused.status_code == 409
+    assert refused.json()["details"] == {
+        "wallet_id": wallet_id,
+        "balance": "10.00",
+        "requested": "99.00",
+    }
+
+
+async def test_pagination_walks_every_page_without_gaps_or_repeats(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """The fakes used to answer `next_cursor: null` to every request, so this
+    was only ever exercised against a real database. A stand-in that says "no
+    more" where the database says otherwise is a different API wearing the same
+    method names."""
+    opened = [await open_wallet(client, owner_id) for _ in range(5)]
+
+    seen: list[str] = []
+    cursor: str | None = None
+    for _ in range(10):
+        query = f"?limit=2{f'&cursor={cursor}' if cursor else ''}"
+        page = (await client.get(f"/v1/wallets{query}", headers=auth(owner_id))).json()
+        seen.extend(w["id"] for w in page["items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+
+    assert cursor is None, "never reached the last page"
+    assert sorted(seen) == sorted(opened)
+    assert len(seen) == len(set(seen)), "a wallet appeared on two pages"

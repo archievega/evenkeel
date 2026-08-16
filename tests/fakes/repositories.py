@@ -18,6 +18,25 @@ class FakeTransactionManager:
         self.rollbacks += 1
 
 
+def _page[ItemT](items: list[ItemT], *, limit: int, cursor: str | None) -> Page[ItemT]:
+    """Cursor paging that behaves like the SQL, not like a slice.
+
+    Both fakes returned `next_cursor=None` always, so every test of a
+    paginated read exercised one page and the second page was only ever
+    reachable in the integration suite. A fake that answers "there is no more"
+    to a question the database answers differently is not a stand-in, it is a
+    different API with the same method names.
+
+    The cursor is the id of the last item returned, matching the adapters'
+    `WHERE id < :cursor ORDER BY id DESC`.
+    """
+    if cursor is not None:
+        items = [item for item in items if str(item.id_.value) < cursor]  # type: ignore[attr-defined]
+    page, remainder = items[:limit], items[limit:]
+    last = str(page[-1].id_.value) if page and remainder else None  # type: ignore[attr-defined]
+    return Page(items=page, next_cursor=last)
+
+
 class FakeWalletRepository:
     """In-memory wallets that enforce the same optimistic-concurrency contract.
 
@@ -54,7 +73,7 @@ class FakeWalletRepository:
             key=lambda w: w.id_.value,
             reverse=True,
         )
-        return Page(items=items[:limit], next_cursor=None)
+        return _page(items, limit=limit, cursor=cursor)
 
     async def add(self, wallet: Wallet) -> None:
         self._wallets[wallet.id_] = wallet
@@ -97,4 +116,4 @@ class FakeLedgerRepository:
             key=lambda e: e.id_.value,
             reverse=True,
         )
-        return Page(items=items[:limit], next_cursor=None)
+        return _page(items, limit=limit, cursor=cursor)

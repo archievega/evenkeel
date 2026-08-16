@@ -1,4 +1,14 @@
-from evenkeel.logging import REDACTED, allowlisted, redact_sensitive
+import logging
+
+import pytest
+from pydantic import SecretStr
+
+from evenkeel.logging import REDACTED, allowlisted, redact_sensitive, setup_logging
+from evenkeel.setup.config import (
+    DatabaseConfig,
+    Settings,
+    production_config_problems,
+)
 
 
 class TestDenylistForAuthoredKeys:
@@ -64,3 +74,49 @@ class TestAllowlistForForeignPayloads:
 
     def test_an_empty_payload_is_empty(self) -> None:
         assert allowlisted(None, allow={"loc"}) == {}
+
+
+def test_a_record_from_a_library_is_redacted_too(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Gap 7 in docs/SECURITY_CONTROLS.md.
+
+    `basicConfig` formatted structlog's output and left every other logger's
+    alone — uvicorn, SQLAlchemy, anything using `logging` — so those records
+    never met the redaction processor at all. They go through
+    `ProcessorFormatter` now, with the same chain.
+    """
+    setup_logging(level="INFO", json_logs=True)
+
+    logging.getLogger("some.library").info("connecting with password=hunter2")
+
+    output = capsys.readouterr().out
+    assert "hunter2" not in output
+    assert REDACTED in output
+
+
+def test_a_secret_inside_a_message_is_redacted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """By the time a library renders its line the secret is a substring, which
+    no amount of walking the event dict will reach."""
+    setup_logging(level="INFO", json_logs=True)
+
+    logging.getLogger("some.library").warning(
+        "GET /x failed, Authorization: Bearer abc.def.ghi"
+    )
+
+    assert "abc.def.ghi" not in capsys.readouterr().out
+
+
+def test_the_boot_guard_refuses_sql_echo() -> None:
+    """The one this cannot cover: SQLAlchemy prints bound parameters
+    positionally, so there is no key to match and nothing to redact. The honest
+    control is refusing the flag, not claiming a filter that cannot work."""
+    settings = Settings(database=DatabaseConfig(echo=True, password=SecretStr("real")))
+    settings.app.identity_provider = "jwt"
+    settings.app.secret_key = SecretStr("a-real-secret")
+
+    assert any(
+        "database.echo" in problem for problem in production_config_problems(settings)
+    )

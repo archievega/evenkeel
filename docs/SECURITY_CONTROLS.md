@@ -77,6 +77,10 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 | An APP-scoped client is closed at shutdown rather than left to the garbage collector | [`ioc/providers/core.py`](../src/evenkeel/setup/ioc/providers/core.py) | every Redis provider yields through `_redis_client`; the aiohttp session is owned by `open_http_risk_assessment` | [404](https://cwe.mitre.org/data/definitions/404.html) |
 | A movement records its key before the work, so a store failure after the commit cannot produce a 503 for money that already moved | [`services/wallet_movement.py`](../src/evenkeel/application/services/wallet_movement.py) | `TestIdempotencyStoreContract` (8 rules, both adapters), `test_two_in_flight_requests_with_one_key_apply_once` | [837](https://cwe.mitre.org/data/definitions/837.html) |
 | Idempotency keys are namespaced per owner, so one tenant's key cannot collide with — or report on — another's | [`services/wallet_movement.py`](../src/evenkeel/application/services/wallet_movement.py) | `test_one_owners_idempotency_key_does_not_collide_with_anothers`, `test_reusing_a_key_with_a_different_payload_is_still_refused` | [668](https://cwe.mitre.org/data/definitions/668.html) |
+| Log redaction covers records this codebase did not write — uvicorn, SQLAlchemy, any library on `logging` — and credentials embedded in an already-rendered message | [`logging.py`](../src/evenkeel/logging.py) | `test_a_record_from_a_library_is_redacted_too`, `test_a_secret_inside_a_message_is_redacted` | [532](https://cwe.mitre.org/data/definitions/532.html) |
+| `database.echo` is refused outside a local run, because SQLAlchemy prints bound parameters positionally and no redactor can classify them | [`setup/config.py`](../src/evenkeel/setup/config.py) | `test_the_boot_guard_refuses_sql_echo` | [532](https://cwe.mitre.org/data/definitions/532.html) |
+| A domain refusal explains the rule without echoing the value that was rejected | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py) | `test_a_domain_error_does_not_echo_the_rejected_value`, `test_a_domain_error_still_explains_the_rule` | [209](https://cwe.mitre.org/data/definitions/209.html) |
+| The default lock adapter refuses instead of waiting at its own default, and reclaims a lease its holder never released | [`memory/locking.py`](../src/evenkeel/infrastructure/adapters/memory/locking.py) | `test_the_default_wait_refuses_instead_of_waiting`, `test_an_expired_lease_is_reclaimed` | [833](https://cwe.mitre.org/data/definitions/833.html) |
 | An adapter cannot drift from the port it is bound to | [`adapters/conformance.py`](../src/evenkeel/infrastructure/adapters/conformance.py) | CI `mypy` | — |
 
 ## Known gaps
@@ -116,16 +120,7 @@ Closed by the outbound slice (2026-08-16):
 Open:
 
 6. "The auth dependency performs no writes" is true by construction and not
-   asserted.
-7. Log redaction covers structlog records only. `setup_logging` uses
-   `structlog.stdlib.LoggerFactory` without a `ProcessorFormatter`, so records
-   from uvicorn, SQLAlchemy `echo` and any library logging through stdlib
-   bypass the processor entirely. Turning on `database.echo` puts SQL and bound
-   parameters into the stream unredacted. Fix: route stdlib records through
-   `ProcessorFormatter` with `foreign_pre_chain=[redaction_processor]`.
-8. `DomainError.context` is passed into the problem document unfiltered, and
-   some contexts contain the rejected value (`CURRENCY_CODE_INVALID` carries
-   `value`). The pydantic path is allowlisted; this one is not. Worth a test once a real identity adapter exists, since that is
+   asserted. Worth a test once a real identity adapter exists, since that is
    where the temptation to upsert a user on first sight appears.
 
 ## Deliberately not controls

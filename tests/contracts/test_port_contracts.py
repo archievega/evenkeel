@@ -148,6 +148,55 @@ class TestDistributedLockContract:
                 assert lock.acquired is True
                 raise RuntimeError("boom")
 
+    async def test_the_default_wait_refuses_instead_of_waiting(
+        self, lock_port: DistributedLockPort
+    ) -> None:
+        """`wait_timeout_ms=0` is the port's own default and means "do not
+        wait".
+
+        The in-memory adapter read it as "wait forever" and deadlocked under
+        contention — in the default configuration of the default adapter, which
+        is the one anybody running without Redis gets. Neither this case nor the
+        TTL below was in this suite, which is precisely how the two adapters
+        came to disagree about them.
+        """
+
+        async def second_attempt() -> bool:
+            async with lock_port.lock("k5", ttl_ms=1000) as second:
+                return second.acquired
+
+        async with lock_port.lock("k5", ttl_ms=1000):
+            try:
+                # Bounded from the outside, because the failure being tested is
+                # a deadlock: an assertion alone would hang the suite until CI
+                # killed the job, which is a six hour way to learn something a
+                # two second timeout says immediately.
+                acquired = await asyncio.wait_for(second_attempt(), timeout=2)
+            except TimeoutError:
+                pytest.fail(
+                    "waited instead of refusing; wait_timeout_ms=0 must not block"
+                )
+
+            assert acquired is False
+
+    async def test_an_expired_lease_is_reclaimed(
+        self, lock_port: DistributedLockPort
+    ) -> None:
+        """`ttl_ms` is what a holder that dies without releasing costs.
+
+        Redis expires the key; the in-memory adapter ignored the argument, so a
+        hung task held its lock until the process ended. Held here without
+        exiting the block, which is the shape of that failure.
+        """
+        held = lock_port.lock("k6", ttl_ms=200)
+        await held.__aenter__()
+        assert held.acquired is True
+
+        await asyncio.sleep(0.4)
+
+        async with lock_port.lock("k6", ttl_ms=1000) as later:
+            assert later.acquired is True
+
         async with lock_port.lock("k4", ttl_ms=1000) as after:
             assert after.acquired is True
 
