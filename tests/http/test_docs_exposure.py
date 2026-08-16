@@ -1,4 +1,4 @@
-"""Interactive docs outside debug, gap 2 in docs/SECURITY_CONTROLS.md.
+"""Interactive docs outside a local run, gap 2 in docs/SECURITY_CONTROLS.md.
 
 `/docs` and `/openapi.json` describe every endpoint, every field and every
 error shape. That is a gift to a developer and a map to anyone else. The switch
@@ -19,9 +19,9 @@ from evenkeel.setup.config import AppConfig, Settings
 DOC_PATHS = ["/docs", "/redoc", "/openapi.json"]
 
 
-async def client_for(*, debug: bool) -> AsyncClient:
+async def client_for(*, environment: str) -> AsyncClient:
     app = create_app(
-        settings=Settings(app=AppConfig(debug=debug)),
+        settings=Settings(app=AppConfig(environment=environment)),
         container=make_async_container(FastapiProvider()),
     )
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
@@ -29,25 +29,25 @@ async def client_for(*, debug: bool) -> AsyncClient:
 
 @pytest.fixture
 async def production() -> AsyncIterator[AsyncClient]:
-    async with await client_for(debug=False) as http:
+    async with await client_for(environment="production") as http:
         yield http
 
 
 @pytest.fixture
 async def development() -> AsyncIterator[AsyncClient]:
-    async with await client_for(debug=True) as http:
+    async with await client_for(environment="local") as http:
         yield http
 
 
 @pytest.mark.parametrize("path", DOC_PATHS)
-async def test_docs_are_absent_outside_debug(production: AsyncClient, path: str) -> None:
+async def test_docs_are_absent_outside_local(production: AsyncClient, path: str) -> None:
     response = await production.get(path)
 
     assert response.status_code == 404
 
 
 @pytest.mark.parametrize("path", DOC_PATHS)
-async def test_docs_are_present_in_debug(development: AsyncClient, path: str) -> None:
+async def test_docs_are_present_locally(development: AsyncClient, path: str) -> None:
     """The other half, so the test fails if someone disables docs everywhere.
 
     A control test that only asserts absence passes when the feature is simply
@@ -64,7 +64,7 @@ async def test_the_health_endpoints_stay_available_in_production(
     """Closing the docs must not close the probes.
 
     They live at the root, unversioned, and the orchestrator needs them
-    regardless of debug.
+    regardless of environment.
     """
     assert (await production.get("/health")).status_code == 200
     assert (await production.get("/version")).status_code == 200

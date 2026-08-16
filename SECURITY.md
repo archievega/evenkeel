@@ -26,20 +26,26 @@ Security properties that are enforced in code and covered by tests:
   so status codes are not an existence oracle.
 - **Routers are default-deny.** Authentication is declared on the router; a new
   endpoint is protected unless it explicitly opts out.
-- **Secrets never reach the logs.** Redaction runs as a processor in the logging
-  pipeline rather than at call sites.
+- **Secrets never reach structlog records.** Redaction runs as a processor in
+  the pipeline rather than at call sites. Note the boundary: records emitted by
+  libraries through stdlib `logging` — uvicorn, SQLAlchemy's `echo` — do not
+  pass through it yet. See the open gap in `docs/SECURITY_CONTROLS.md`.
 - **Errors do not leak internals.** Unhandled exceptions return a correlation id;
   the stack trace stays server-side. Validation errors echo the field and the
   reason, never the rejected value.
-- **Production refuses to start insecurely.** A default signing secret, a
-  well-known database password, or debug mode aborts the boot instead of
-  logging a warning that scrolls away.
+- **Production refuses to start insecurely.** Outside an explicitly `local`
+  run, a default signing secret, a well-known database password, or the
+  placeholder identity adapter aborts the boot instead of logging a warning
+  that scrolls away. `environment` defaults to `production`, so an image
+  deployed with no configuration gets the strict posture.
 
 What it deliberately does **not** provide:
 
 - The bundled `DevIdentityProvider` treats the credential as the owner id. It
-  is a placeholder for local work and the production boot check rejects it.
-  Swap in a real identity adapter before exposing anything.
+  is a placeholder for local work, and the boot check now genuinely rejects it
+  outside `local` — `app.identity_provider` is named in configuration precisely
+  so the guard has something to refuse. Swap in a real identity adapter before
+  exposing anything.
 - No secret manager integration. Configuration comes from the environment;
   delivering secrets to that environment is the deployment's responsibility.
 - No WAF, no bot management, no DDoS protection. The rate limiter is a

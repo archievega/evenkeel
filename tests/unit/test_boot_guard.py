@@ -18,7 +18,10 @@ from evenkeel.setup.config import (
 
 def hardened() -> Settings:
     return Settings(
-        app=AppConfig(debug=False, secret_key=SecretStr("a-real-secret-from-the-vault")),
+        app=AppConfig(
+            identity_provider="jwt",
+            secret_key=SecretStr("a-real-secret-from-the-vault"),
+        ),
         database=DatabaseConfig(password=SecretStr("a-real-database-password")),
     )
 
@@ -58,11 +61,19 @@ def test_a_well_known_database_password_is_refused() -> None:
     assert any("database.password" in problem for problem in problems)
 
 
-def test_debug_mode_is_refused() -> None:
-    settings = hardened()
-    settings.app.debug = True
+def test_the_placeholder_identity_provider_is_refused() -> None:
+    """The claim three documents used to make and the code did not.
 
-    assert any("debug" in problem for problem in production_config_problems(settings))
+    `DevIdentityProvider` authenticates whoever supplies an owner id. A
+    deployment that satisfies every other check and still has it wired in has
+    no authentication at all, so it belongs on the refusal list.
+    """
+    settings = hardened()
+    settings.app.identity_provider = "dev"
+
+    problems = production_config_problems(settings)
+
+    assert any("identity_provider" in problem for problem in problems)
 
 
 def test_every_problem_is_reported_not_just_the_first() -> None:
@@ -72,11 +83,17 @@ def test_every_problem_is_reported_not_just_the_first() -> None:
     deploy cycles, which is exactly when someone starts disabling the check.
     """
     settings = Settings(
-        app=AppConfig(debug=True, secret_key=SecretStr("change-me")),
+        app=AppConfig(identity_provider="dev", secret_key=SecretStr("change-me")),
         database=DatabaseConfig(password=SecretStr("postgres")),
     )
 
-    assert len(production_config_problems(settings)) == 3
+    problems = " | ".join(production_config_problems(settings))
+
+    # Asserting the substrings rather than a count, so adding a sixth check
+    # later does not fail a test whose subject is "all of them, at once".
+    assert "identity_provider" in problems
+    assert "secret_key" in problems
+    assert "database.password" in problems
 
 
 def test_the_default_settings_are_not_production_ready() -> None:

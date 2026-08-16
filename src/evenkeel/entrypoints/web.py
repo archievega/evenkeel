@@ -9,11 +9,16 @@ def main() -> int:
     settings = load_settings()
 
     problems = production_config_problems(settings)
-    if problems and not settings.app.debug:
+    if problems and not settings.app.is_local:
         # Fail fast rather than serve. A process that boots with a default
         # secret is indistinguishable from a correctly configured one until
         # someone exploits it, and the log line warning about it will have
         # scrolled away hours earlier.
+        #
+        # The gate is `is_local`, not the problem list itself: the previous
+        # version keyed on `debug`, which was also one of the problems being
+        # reported, so the check silently suppressed itself in the default
+        # configuration.
         for problem in problems:
             print(f"FATAL: insecure configuration: {problem}", file=sys.stderr)
         return 1

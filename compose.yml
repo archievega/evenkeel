@@ -11,7 +11,9 @@ services:
       APP__DATABASE__USER: evenkeel
       APP__DATABASE__PASSWORD: evenkeel
       APP__DATABASE__DATABASE: evenkeel
-      APP__APP__DEBUG: "true"
+      # Asked for explicitly. The default is `production`, so an image deployed
+      # without configuration gets the strict posture instead of this one.
+      APP__APP__ENVIRONMENT: local
       APP__APP__LOGGING__JSON_LOGS: "false"
     ports:
       # Bound to loopback. Publishing on 0.0.0.0 exposes a development stack --

@@ -27,11 +27,11 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 
 | Control | Enforced in | Proven by | CWE |
 | --- | --- | --- | --- |
-| Credentials are stripped from every log record by a pipeline processor, not at call sites | [`logging.py`](../src/evenkeel/logging.py) | `test_a_credential_is_stripped`, `test_anything_ending_in_token_is_stripped`, `test_nested_structures_are_walked` | [532](https://cwe.mitre.org/data/definitions/532.html) |
+| Credentials are stripped from every **structlog** record by a pipeline processor, not at call sites (library records via stdlib `logging` are not covered — gap 7) | [`logging.py`](../src/evenkeel/logging.py) | `test_a_credential_is_stripped`, `test_anything_ending_in_token_is_stripped`, `test_nested_structures_are_walked` | [532](https://cwe.mitre.org/data/definitions/532.html) |
 | Payloads this codebase did not author are filtered by allowlist, so a new field is redacted by default | `logging.allowlisted`, [`http/errors.py`](../src/evenkeel/presentation/http/errors.py) | `test_everything_else_is_redacted`, `test_a_new_field_is_redacted_without_anyone_updating_a_list` | 532 |
 | A rejected value never appears in the validation response | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py) | `test_a_negative_amount_is_rejected_at_the_edge` | [209](https://cwe.mitre.org/data/definitions/209.html) |
 | The readiness probe reports a failure class, never the DSN | [`routers/health.py`](../src/evenkeel/presentation/http/routers/health.py) | `test_readiness_does_not_leak_connection_details` | 209 |
-| An unhandled exception returns a correlation id, never a stack trace | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py) | `test_the_exception_message_never_reaches_the_client`, `test_the_response_carries_a_correlation_id_to_find_the_log` | 209 |
+| An unhandled exception returns a correlation id, never a stack trace — in every environment, because `debug` is no longer passed to FastAPI | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py), [`setup/app_factory.py`](../src/evenkeel/setup/app_factory.py) | `test_the_exception_message_never_reaches_the_client`, `test_the_response_carries_a_correlation_id_to_find_the_log` | 209 |
 | Interactive docs are off outside debug | [`setup/app_factory.py`](../src/evenkeel/setup/app_factory.py) | `test_docs_are_absent_outside_debug` (and the inverse, so the test fails if docs break everywhere) | [200](https://cwe.mitre.org/data/definitions/200.html) |
 
 ## Integrity under concurrency
@@ -61,7 +61,7 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 
 | Control | Enforced in | Proven by | CWE |
 | --- | --- | --- | --- |
-| Production refuses to boot with a default secret or a well-known database password | [`setup/config.py`](../src/evenkeel/setup/config.py), [`entrypoints/web.py`](../src/evenkeel/entrypoints/web.py) | `test_the_default_secret_is_refused`, `test_the_default_settings_are_not_production_ready` | [1188](https://cwe.mitre.org/data/definitions/1188.html) |
+| Outside a `local` run, production refuses to boot with a default secret, a well-known database password, or the placeholder identity adapter | [`setup/config.py`](../src/evenkeel/setup/config.py), [`entrypoints/web.py`](../src/evenkeel/entrypoints/web.py) | `test_the_default_secret_is_refused`, `test_the_placeholder_identity_provider_is_refused`, `test_the_default_settings_are_not_production_ready` | [1188](https://cwe.mitre.org/data/definitions/1188.html) |
 | The runtime image runs as an unprivileged user and contains no package installer | [`Dockerfile`](../Dockerfile) | CI `build and scan image` (trivy, HIGH/CRITICAL, fixed-only) | [250](https://cwe.mitre.org/data/definitions/250.html) |
 | Secrets are scanned across full history, not just the tip | CI `security` job | gitleaks over `fetch-depth: 0` | 532 |
 | Dependencies are audited and statically analysed | CI `security` job | `pip-audit`, `bandit` | [1395](https://cwe.mitre.org/data/definitions/1395.html) |
@@ -89,10 +89,19 @@ were broken:
 - `DenyingRateLimiter` had been sitting in `tests/fakes/system.py` used by
   nothing, so the interactor's rate-limit branch had never executed in a test.
 
-One remains open:
+Open:
 
 6. "The auth dependency performs no writes" is true by construction and not
-   asserted. Worth a test once a real identity adapter exists, since that is
+   asserted.
+7. Log redaction covers structlog records only. `setup_logging` uses
+   `structlog.stdlib.LoggerFactory` without a `ProcessorFormatter`, so records
+   from uvicorn, SQLAlchemy `echo` and any library logging through stdlib
+   bypass the processor entirely. Turning on `database.echo` puts SQL and bound
+   parameters into the stream unredacted. Fix: route stdlib records through
+   `ProcessorFormatter` with `foreign_pre_chain=[redaction_processor]`.
+8. `DomainError.context` is passed into the problem document unfiltered, and
+   some contexts contain the rejected value (`CURRENCY_CODE_INVALID` carries
+   `value`). The pydantic path is allowlisted; this one is not. Worth a test once a real identity adapter exists, since that is
    where the temptation to upsert a user on first sight appears.
 
 ## Deliberately not controls

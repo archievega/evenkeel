@@ -22,6 +22,7 @@ from evenkeel.application.ports import (
 )
 from evenkeel.domain.entities.ledger_entry import LedgerDirection, LedgerEntry
 from evenkeel.domain.entities.wallet import Wallet
+from evenkeel.domain.errors import DomainError
 from evenkeel.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
 from evenkeel.domain.value_objects.money import Money
 
@@ -87,6 +88,13 @@ class WalletMovementService:
         self._settings = settings
 
     async def apply(self, request: MovementRequest) -> MovementOutcome:
+        # Checked twice, and both are needed. Outside the lock this answers a
+        # retry that arrives after the original finished — the common case —
+        # without queueing behind an unrelated writer, which would otherwise
+        # turn a completed operation into a 409 under exactly the contention
+        # that produces retries. Inside the lock (below) is the authoritative
+        # one: it is the only placement that catches two requests already in
+        # flight with the same key.
         replay = await self._replayed(request)
         if replay is not None:
             return replay
@@ -108,6 +116,14 @@ class WalletMovementService:
                     ApplicationErrorCode.WALLET_BUSY,
                     details={"wallet_id": str(request.wallet_id.value)},
                 )
+            # The authoritative check. Two requests that both missed the fast
+            # path above serialise here, and the loser finds the record the
+            # winner wrote. Without it the version predicate does not help:
+            # the lock orders them, so the second reads post-commit state and
+            # its `WHERE version =` matches.
+            replay = await self._replayed(request)
+            if replay is not None:
+                return replay
             return await self._apply_locked(request)
 
     async def _apply_locked(self, request: MovementRequest) -> MovementOutcome:
@@ -125,10 +141,17 @@ class WalletMovementService:
 
         now = self._clock.now()
         expected_version = wallet.version
-        if request.direction is LedgerDirection.CREDIT:
-            balance_after = wallet.deposit(request.amount, now=now)
-        else:
-            balance_after = wallet.withdraw(request.amount, now=now)
+        try:
+            if request.direction is LedgerDirection.CREDIT:
+                balance_after = wallet.deposit(request.amount, now=now)
+            else:
+                balance_after = wallet.withdraw(request.amount, now=now)
+        except DomainError:
+            # Insufficient funds is a refusal, not an exception to leak upward
+            # with an open transaction. Every other branch here rolls back; a
+            # session handed on mid-transaction is the next request's problem.
+            await self._transaction_manager.rollback()
+            raise
 
         entry = LedgerEntry.record(
             id_=LedgerEntryId(self._ids.generate()),
@@ -201,6 +224,10 @@ class WalletMovementService:
                 "amount": str(request.amount.amount),
                 "currency": request.amount.currency.value,
                 "direction": request.direction.value,
+                # Included, or the same key with a different description
+                # replays silently and returns a receipt for an operation the
+                # caller never made.
+                "description": request.description,
             },
             sort_keys=True,
         )

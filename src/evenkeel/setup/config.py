@@ -1,5 +1,9 @@
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
+
+LOCAL = "local"
+DEV_IDENTITY = "dev"
 
 # nosec B105 — the opposite of a hardcoded credential. This is the sentinel the
 # boot check compares against: seeing it means nobody supplied a secret, and the
@@ -21,9 +25,26 @@ class ApiConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    """One switch, and it fails closed.
+
+    There used to be two — `debug` and `environment` — and they interacted
+    badly: `debug` defaulted to True, it was reported as a fatal problem by the
+    boot guard, and it was also the flag that suppressed the guard, so the check
+    could never fire in the configuration that shipped. Meanwhile `environment`
+    was read by nothing.
+
+    `environment` now decides everything and defaults to `production`. An image
+    deployed without configuration therefore gets the strict posture, and the
+    permissive one has to be asked for — which is what `compose.yml` and
+    `.env.example` do explicitly.
+    """
+
     name: str = "evenkeel"
-    environment: str = "local"
-    debug: bool = True
+    environment: str = "production"
+    # The only identity adapter that exists. Named in configuration so the boot
+    # guard has something to refuse: a placeholder that authenticates whoever
+    # asks must not reach production silently.
+    identity_provider: str = DEV_IDENTITY
     # nosec B104 — a container that binds loopback is unreachable from outside
     # itself, so 0.0.0.0 is the only workable default here. Exposure is
     # controlled one layer out: compose publishes to 127.0.0.1 only, and in
@@ -51,6 +72,10 @@ class AppConfig(BaseModel):
     api: ApiConfig = Field(default_factory=ApiConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
+    @property
+    def is_local(self) -> bool:
+        return self.environment == LOCAL
+
 
 class DatabaseConfig(BaseModel):
     host: str = "localhost"
@@ -69,16 +94,23 @@ class DatabaseConfig(BaseModel):
 
     @property
     def async_dsn(self) -> SecretStr:
-        return SecretStr(
-            f"postgresql+asyncpg://{self.user}:{self.password.get_secret_value()}"
-            f"@{self.host}:{self.port}/{self.database}"
-        )
+        """Built component-wise, never by f-string.
 
-    @property
-    def sync_dsn(self) -> SecretStr:
+        An f-string DSN treats the password as URL syntax. `p@ss` makes the
+        parser read `ss@host` as the host and connect somewhere else with a
+        truncated credential; `pa%ss` detonates later inside alembic's
+        ConfigParser, printing the whole DSN to stderr. `URL.create` escapes
+        each component, so a generated password stays a password.
+        """
         return SecretStr(
-            f"postgresql+psycopg://{self.user}:{self.password.get_secret_value()}"
-            f"@{self.host}:{self.port}/{self.database}"
+            URL.create(
+                drivername="postgresql+asyncpg",
+                username=self.user,
+                password=self.password.get_secret_value(),
+                host=self.host,
+                port=self.port,
+                database=self.database,
+            ).render_as_string(hide_password=False)
         )
 
 
@@ -129,10 +161,18 @@ def production_config_problems(settings: Settings) -> list[str]:
 
     Returned rather than raised so the caller decides: the server entrypoint
     refuses to boot, while tests and tooling can build an app without it.
+
+    Note what is NOT checked here: `environment` itself. This function answers
+    "is this configuration safe to expose", and the caller answers "does that
+    matter here". Checking the environment in both places is how the previous
+    version ended up suppressing itself.
     """
     problems: list[str] = []
-    if settings.app.debug:
-        problems.append("app.debug is enabled")
+    if settings.app.identity_provider == DEV_IDENTITY:
+        problems.append(
+            "app.identity_provider is still 'dev', which authenticates anyone "
+            "who supplies an owner id"
+        )
     secret = settings.app.secret_key.get_secret_value()
     if not secret or secret == DEFAULT_SECRET:
         problems.append("app.secret_key is empty or still the public default")

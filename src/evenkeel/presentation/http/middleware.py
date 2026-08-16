@@ -1,7 +1,9 @@
+import re
 import time
 import uuid
 
 import structlog
+from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from evenkeel.application.ports import MetricsPort
@@ -35,6 +37,26 @@ class ObservabilityMiddleware:
     def __init__(self, app: ASGIApp, metrics: MetricsPort) -> None:
         self._app = app
         self._metrics = metrics
+        # Compiled full-path templates, built once on the first request.
+        # Routes are registered before traffic arrives but after this object
+        # exists, so this cannot be done in __init__.
+        self._patterns: list[tuple[re.Pattern[str], str]] | None = None
+
+    def _handler_label(self, scope: Scope) -> str:
+        """The route template, never the raw path.
+
+        `/v1/wallets/{wallet_id}` is one time series; the raw path is one series
+        per wallet, which is how a metrics backend runs out of memory. Anything
+        matching no route collapses to a single `unmatched`, so scanner traffic
+        cannot mint a series per probed URL either.
+        """
+        if self._patterns is None:
+            self._patterns = _build_route_patterns(scope.get("app"))
+        path = str(scope.get("path", ""))
+        for pattern, template in self._patterns:
+            if pattern.fullmatch(path):
+                return template
+        return "unmatched"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Lifespan and websocket traffic is none of this middleware's business.
@@ -69,7 +91,15 @@ class ObservabilityMiddleware:
             if message["type"] == "http.response.start":
                 status_code = message["status"]
                 headers = list(message.get("headers", []))
-                headers.append((_CORRELATION_HEADER_BYTES, correlation_id.encode()))
+                # Only if absent. Error responses are rendered by `problem()`,
+                # which sets the header itself because the catch-all handler
+                # runs outside this wrapper — appending unconditionally gave
+                # those responses the header twice, which a client reads as the
+                # single comma-joined value "id, id".
+                if not any(name == _CORRELATION_HEADER_BYTES for name, _ in headers):
+                    headers.append(
+                        (_CORRELATION_HEADER_BYTES, correlation_id.encode("latin-1"))
+                    )
                 message["headers"] = headers
             await send(message)
 
@@ -78,7 +108,7 @@ class ObservabilityMiddleware:
         except Exception as exc:
             self._metrics.request_failed(
                 method=scope.get("method", ""),
-                handler=_handler_label(scope),
+                handler=self._handler_label(scope),
                 exception_type=type(exc).__name__,
                 duration_seconds=time.perf_counter() - started_at,
             )
@@ -87,7 +117,7 @@ class ObservabilityMiddleware:
             duration = time.perf_counter() - started_at
             self._metrics.request_finished(
                 method=scope.get("method", ""),
-                handler=_handler_label(scope),
+                handler=self._handler_label(scope),
                 status_code=status_code,
                 duration_seconds=duration,
             )
@@ -100,6 +130,52 @@ class ObservabilityMiddleware:
             structlog.contextvars.clear_contextvars()
 
 
+def _build_route_patterns(
+    router: object, prefix: str = ""
+) -> list[tuple[re.Pattern[str], str]]:
+    """Compile every FULL path template once, to match raw paths against later.
+
+    Two things make the obvious approaches wrong. `scope["route"].path` is
+    relative to the router that owns it, so `GET /v1/wallets` reports `""` and
+    `/v1/wallets/{wallet_id}` reports `/{wallet_id}` — distinct endpoints
+    collapse into one label and collide with any other router owning an
+    `{id}`-shaped route. And matching on route identity fails too: FastAPI's
+    nested routers put the original route object on the scope while `app.routes`
+    exposes wrappers, so the two never compare equal.
+
+    Accumulating prefixes and recompiling gives the real template. The cost is
+    a handful of regex matches against a short string, once per request.
+    """
+    patterns: list[tuple[re.Pattern[str], str]] = []
+    for route in getattr(router, "routes", []):
+        # An included router is a wrapper holding the router it was built from
+        # plus the prefix it was mounted at. These two attribute names are
+        # FastAPI internals, and the tests in
+        # `tests/http/test_observability_middleware.py` exist so that a version
+        # bump renaming them fails loudly instead of silently degrading every
+        # metric label back to a relative path.
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            context = getattr(route, "include_context", None)
+            patterns.extend(
+                _build_route_patterns(
+                    included, prefix + str(getattr(context, "prefix", ""))
+                )
+            )
+            continue
+
+        nested = getattr(route, "routes", None)
+        if nested:
+            patterns.extend(
+                _build_route_patterns(route, prefix + str(getattr(route, "path", "")))
+            )
+            continue
+
+        template = prefix + str(getattr(route, "path", "")) or "/"
+        patterns.append((compile_path(template)[0], template))
+    return patterns
+
+
 def _inbound_correlation_id(scope: Scope) -> str | None:
     for name, value in scope.get("headers", []):
         if name.lower() == _CORRELATION_HEADER_BYTES:
@@ -108,13 +184,23 @@ def _inbound_correlation_id(scope: Scope) -> str | None:
     return None
 
 
-def _handler_label(scope: Scope) -> str:
-    """Use the route template, never the raw path.
+def _build_label_map(router: object, prefix: str = "") -> dict[int, str]:
+    """Map every route object to its FULL path template.
 
-    `/v1/wallets/{wallet_id}` is one time series; the raw path is one series per
-    wallet, which is how a metrics backend runs out of memory. The router writes
-    the matched route into the scope while handling, so this is read after the
-    downstream app has run rather than before.
+    `scope["route"].path` alone is not it. FastAPI nests included routers, and
+    the route object it puts on the scope carries only its own leaf path — so
+    `GET /v1/wallets` reports `""` and `GET /v1/wallets/{wallet_id}` reports
+    `/{wallet_id}`. Two different endpoints then share one empty label, and any
+    second router with an `{id}`-shaped route collides with this one. Walking
+    the tree once and accumulating prefixes gives the template the docstring
+    below promises.
     """
-    route = scope.get("route")
-    return getattr(route, "path", "unmatched")
+    labels: dict[int, str] = {}
+    for route in getattr(router, "routes", []):
+        path = prefix + str(getattr(route, "path", ""))
+        nested = getattr(route, "routes", None)
+        if nested:
+            labels.update(_build_label_map(route, path))
+        else:
+            labels[id(route)] = path or "/"
+    return labels

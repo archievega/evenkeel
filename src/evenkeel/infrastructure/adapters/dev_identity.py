@@ -12,9 +12,11 @@ class UnauthenticatedError(ApplicationError):
 class DevIdentityProvider(IdentityProvider):
     """Development identity: the credential *is* the owner id.
 
-    This exists so the template starts with no auth server, and it is why the
-    server entrypoint refuses to boot in production while it is still wired in.
-    Replace it with the JWT/JWKS adapter before exposing anything.
+    This exists so the template starts with no auth server. The entrypoint
+    refuses to boot while it is selected outside a `local` run — the guard
+    matches on `app.identity_provider`, which is why that setting exists at all
+    despite having only one value today. Replace it with a JWT/JWKS adapter
+    before exposing anything.
     """
 
     async def authenticate(self, credential: str | None) -> Principal:

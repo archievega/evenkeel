@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from evenkeel.infrastructure.sqla.tables import metadata
@@ -24,10 +24,15 @@ if config.config_file_name is not None:
 # against a throwaway test database quietly migrates whatever the environment
 # points at instead -- which is the production database on the machine of
 # whoever runs the suite with a real .env loaded.
-if not config.get_main_option("sqlalchemy.url", None):
-    config.set_main_option(
-        "sqlalchemy.url", load_settings().database.async_dsn.get_secret_value()
-    )
+# Read, never written back. Putting the DSN into the ini means ConfigParser
+# interpolation sees it, and a `%` in the password raises a ValueError whose
+# message contains the whole plaintext DSN — printed to stderr by a failing
+# `alembic upgrade head`, straight into CI and container logs, bypassing the
+# logging redaction entirely.
+DATABASE_URL = (
+    config.get_main_option("sqlalchemy.url", None)
+    or load_settings().database.async_dsn.get_secret_value()
+)
 
 target_metadata = metadata
 
@@ -51,7 +56,7 @@ def render_item(
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         # Both are off by default, and both are what catch a column whose type
@@ -77,9 +82,8 @@ def do_run_migrations(connection: object) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        DATABASE_URL,
         # Migrations are a short-lived one-shot; a pool would keep connections
         # open past the process's usefulness.
         poolclass=NullPool,

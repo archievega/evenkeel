@@ -54,16 +54,20 @@ def create_app(
         level=resolved_settings.app.logging.level,
         json_logs=resolved_settings.app.logging.json_logs,
         pretty_console=(
-            resolved_settings.app.debug
+            resolved_settings.app.is_local
             and resolved_settings.app.logging.console_pretty_in_debug
         ),
         include_timestamp=resolved_settings.app.logging.include_timestamp,
     )
 
-    is_production = not resolved_settings.app.debug
+    is_production = not resolved_settings.app.is_local
     app = FastAPI(
         title=resolved_settings.app.name,
-        debug=resolved_settings.app.debug,
+        # `debug` is never passed through. Starlette's ServerErrorMiddleware
+        # checks it BEFORE consulting the installed handler, so a truthy value
+        # replaces the RFC 9457 document with an HTML page carrying the
+        # exception message, the source frames and — for a driver error — the
+        # DSN. The handler in `errors.py` must always be the thing that renders.
         lifespan=lifespan,
         # Interactive docs describe every endpoint and schema; that is a gift
         # to a developer and a map to an attacker. Off unless debug.
