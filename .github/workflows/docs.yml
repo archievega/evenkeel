@@ -4,19 +4,16 @@ name: docs
 # the repository and starting the stack. Same renderer the app serves at
 # `/scalar`, same committed `openapi.json`.
 on:
-  # Manual only until Pages is enabled for the repository (Settings → Pages →
-  # Source: GitHub Actions). Deploying before that fails, and a red cross on a
-  # repository whose pitch is verified claims is an expensive kind of ironic.
-  #
-  # Once it is on, add:
-  #
-  #   push:
-  #     branches: [main]
-  #     paths: ["openapi.json", "src/**", "tools/build_docs.py",
-  #             "tools/dump_openapi.py", ".github/workflows/docs.yml"]
-  #
-  # Path-filtered, because a docs deploy on every README typo is a queue of
-  # no-op deployments hiding the real one.
+  push:
+    branches: [main]
+    # Path-filtered: a docs deploy on every README typo is a queue of no-op
+    # deployments hiding the real one.
+    paths:
+      - "openapi.json"
+      - "src/**"
+      - "tools/build_docs.py"
+      - "tools/dump_openapi.py"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
