@@ -205,6 +205,22 @@ class RiskConfig(BaseModel):
         return self
 
 
+class McpConfig(BaseModel):
+    """The MCP transport acts on behalf of exactly one owner.
+
+    `owner_id` is configuration and never a tool argument. A tool that took the
+    owner would be a cross-tenant IDOR with a natural-language interface: the
+    model reads untrusted text for a living, and anything that persuades it to
+    pass a different id moves somebody else's money.
+
+    Empty by default and refused at boot rather than defaulted, for the same
+    reason `identity_provider` is: an authorisation decision nobody made is not
+    a safe one.
+    """
+
+    owner_id: str = ""
+
+
 class ObservabilityConfig(BaseModel):
     metrics_enabled: bool = False
     tracing_enabled: bool = False
@@ -225,6 +241,7 @@ class Settings(BaseSettings):
     redis: RedisConfig = Field(default_factory=RedisConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     movements: MovementPolicyConfig = Field(default_factory=MovementPolicyConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 

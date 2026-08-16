@@ -62,6 +62,7 @@ things that only show up after a service has been in production for a while:
 ```mermaid
 flowchart TD
     HTTP[presentation/http] --> APP[application]
+    MCP[presentation/mcp] --> APP
     CLI[entrypoints] --> APP
     APP --> DOM[domain]
     INFRA[infrastructure/adapters] -.implements.-> PORTS[application/ports]
@@ -132,6 +133,36 @@ this repository — are in
 [tools/load/README.md](tools/load/README.md), and the reasoning is
 [ADR 6](docs/adr/0006-outbound-calls.md).
 
+## A second transport, over the same use cases
+
+`presentation/mcp` exposes the wallet as [MCP](https://modelcontextprotocol.io)
+tools, so a model can hold an account. Six tools, each resolving the *same*
+interactor the HTTP router resolves:
+
+```bash
+APP__MCP__OWNER_ID=<uuid> make run-mcp
+```
+
+Nothing below `presentation` changed to add it — no new port, no argument on a
+command, no branch in a use case. The idempotency key, the per-wallet lock, the
+optimistic version, the rate limit and the outbound risk check all apply to a
+tool call because none of them ever lived in the HTTP layer. That is the only
+honest way to show the layering is real rather than decorative, and it is why
+this exists.
+
+**The owner is configuration, never a tool argument.** A
+`deposit(owner_id, ...)` tool would be a cross-tenant IDOR with a
+natural-language interface: the model reads untrusted text for a living, so
+"it was persuaded to pass a different id" is a normal Tuesday. The parameter
+that does not exist cannot be manipulated, and a test asserts on the published
+schemas that none of them has one.
+
+Adding this surfaced three defects that one transport had been hiding — an
+amount larger than the ledger column can store, `Money(NaN)` raising the wrong
+error, and test fakes that disagreed with the database about row order. All
+three are fixed in the domain and the fakes, not in the tool layer.
+[ADR 7](docs/adr/0007-mcp-as-a-second-transport.md) has the reasoning.
+
 ## API reference
 
 Three renderings of the same document, on a local run only:
@@ -179,11 +210,12 @@ make run       # start the API
 
 In place: the core and the wallet slice, the CI pipeline the badge points at,
 the outbound-call slice with its load runs, Prometheus metrics behind
-`/metrics`, and the OpenAPI contract with its drift and breaking-change checks.
+`/metrics`, the MCP transport, and the OpenAPI contract with its drift and
+breaking-change checks.
 
 Not started, and deliberately not listed above as if they were: tracing, an
-outbox, a worker, an MCP transport. The reasoning behind what is here lives in
-`docs/adr/`.
+outbox, a worker, a real identity adapter. The reasoning behind what is here
+lives in `docs/adr/`.
 
 ## License
 

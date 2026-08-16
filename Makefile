@@ -3,7 +3,7 @@
 UV ?= uv
 SRC := src tests
 
-.PHONY: help sync fmt lint arch types test test-integration check run migrate revision clean
+.PHONY: help sync fmt lint arch types test test-integration check run run-mcp migrate revision clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "\nTargets:\n\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -39,6 +39,9 @@ test-integration: ## Run tests against a real database (needs Docker)
 # One command, and it is the same list CI runs. A local gate that is weaker
 # than CI just moves the failure to the pull request.
 check: lint arch types schema-check test ## Full local quality gate
+
+run-mcp: ## Start the MCP server on stdio (a client normally spawns this itself)
+	$(UV) run evenkeel-mcp
 
 run: ## Start the API
 	$(UV) run evenkeel-web

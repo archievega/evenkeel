@@ -11,7 +11,8 @@ failed in a specific way.
 | [3](0003-ownership-is-a-query-parameter.md) | Ownership is a query parameter, not a check |
 | [4](0004-three-guards-against-double-spend.md) | Three independent guards on every balance change |
 | [5](0005-null-adapters-for-optional-dependencies.md) | Every optional dependency ships a null adapter |
-| [6](0006-outbound-calls.md) | Outbound calls carry five guards, and unavailable is an outcome |
+| [6](0006-outbound-calls.md) | Outbound calls carry four guards, and unavailable is an outcome |
+| [7](0007-mcp-as-a-second-transport.md) | MCP over the same use cases, with the owner bound out of the model's reach |
 
 ## Writing a new one
 

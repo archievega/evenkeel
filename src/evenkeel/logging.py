@@ -1,7 +1,7 @@
 import logging
 import sys
 from collections.abc import Mapping, Set
-from typing import Any
+from typing import Any, TextIO
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -105,7 +105,18 @@ def setup_logging(
     json_logs: bool = True,
     pretty_console: bool = False,
     include_timestamp: bool = True,
+    stream: TextIO | None = None,
 ) -> None:
+    """Configure structlog and the stdlib root logger.
+
+    `stream` defaults to stdout, which is right for a server whose output is
+    collected by a container runtime. It is not right for every process: the
+    MCP transport speaks JSON-RPC over stdout, and a log line written there is
+    handed to the client as a malformed protocol message. That was not a
+    hypothetical — the first end-to-end run of `evenkeel-mcp` printed a pydantic
+    validation error at the client because "database engine disposed" arrived
+    where a response was expected.
+    """
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
@@ -135,7 +146,10 @@ def setup_logging(
         cache_logger_on_first_use=True,
     )
     logging.basicConfig(
-        format="%(message)s", stream=sys.stdout, level=level.upper(), force=True
+        format="%(message)s",
+        stream=stream or sys.stdout,
+        level=level.upper(),
+        force=True,
     )
 
 

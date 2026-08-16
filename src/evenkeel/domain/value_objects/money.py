@@ -5,6 +5,12 @@ from evenkeel.domain.base.value_object import ValueObject
 from evenkeel.domain.errors import DomainError, DomainErrorCode
 
 MONEY_SCALE = 2
+# The ledger stores NUMERIC(20, 2): eighteen digits before the point. A value
+# larger than that is not "a big deposit", it is a row the database will refuse
+# — and the refusal arrives as a driver error at commit time, which surfaces as
+# a 500 for what is really a bad request. Bounded here so every transport gets
+# the same answer, and gets it before anything is written.
+MONEY_MAX = Decimal(10) ** (20 - MONEY_SCALE) - Decimal(1).scaleb(-MONEY_SCALE)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -33,10 +39,23 @@ class Money(ValueObject):
     currency: CurrencyCode
 
     def _validate(self) -> None:
+        # First, because every check below assumes a number. `Decimal("NaN")`
+        # compares False against everything and raises `InvalidOperation` on
+        # arithmetic, so an unguarded NaN reaches the ledger and detonates
+        # somewhere unrelated.
+        if not self.amount.is_finite():
+            raise DomainError(
+                DomainErrorCode.MONEY_AMOUNT_NOT_FINITE, {"amount": str(self.amount)}
+            )
         if -self.amount.as_tuple().exponent > MONEY_SCALE:  # type: ignore[operator]
             raise DomainError(
                 DomainErrorCode.MONEY_SCALE_EXCEEDED,
                 {"amount": str(self.amount), "max_scale": MONEY_SCALE},
+            )
+        if abs(self.amount) > MONEY_MAX:
+            raise DomainError(
+                DomainErrorCode.MONEY_AMOUNT_OUT_OF_RANGE,
+                {"amount": str(self.amount), "max": str(MONEY_MAX)},
             )
 
     @classmethod

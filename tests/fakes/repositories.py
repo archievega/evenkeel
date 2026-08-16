@@ -46,7 +46,14 @@ class FakeWalletRepository:
     async def list_by_owner(
         self, owner_id: OwnerId, *, limit: int, cursor: str | None = None
     ) -> Page[Wallet]:
-        items = [w for w in self._wallets.values() if w.owner_id == owner_id]
+        # Newest first, like `ORDER BY id DESC` in the SQL adapter. Ids are
+        # UUIDv7, so id order is time order. A fake that returns insertion
+        # order passes tests the real repository would fail.
+        items = sorted(
+            (w for w in self._wallets.values() if w.owner_id == owner_id),
+            key=lambda w: w.id_.value,
+            reverse=True,
+        )
         return Page(items=items[:limit], next_cursor=None)
 
     async def add(self, wallet: Wallet) -> None:
@@ -85,5 +92,9 @@ class FakeLedgerRepository:
         limit: int,
         cursor: str | None = None,
     ) -> Page[LedgerEntry]:
-        items = [e for e in self.entries.values() if e.wallet_id == wallet_id]
+        items = sorted(
+            (e for e in self.entries.values() if e.wallet_id == wallet_id),
+            key=lambda e: e.id_.value,
+            reverse=True,
+        )
         return Page(items=items[:limit], next_cursor=None)

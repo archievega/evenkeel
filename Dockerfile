@@ -38,12 +38,12 @@ COPY --from=uv-bin /uv /uvx /bin/
 # first would rebuild the whole environment on every source edit.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra redis --extra metrics --extra docs --extra outbound
+    uv sync --frozen --no-install-project --no-dev --extra redis --extra metrics --extra docs --extra outbound --extra mcp
 
 COPY README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra redis --extra metrics --extra docs --extra outbound
+    uv sync --frozen --no-dev --extra redis --extra metrics --extra docs --extra outbound --extra mcp
 
 
 FROM base AS runtime
