@@ -67,6 +67,7 @@ async def test_a_denied_deposit_raises_rate_limited() -> None:
     assert error.value.status_code == 429
 
 
+@pytest.mark.cwe(770)
 async def test_a_denied_request_moves_no_money() -> None:
     """The assertion that matters.
 
@@ -106,6 +107,7 @@ async def test_the_refusal_tells_the_client_when_to_retry() -> None:
     assert error.value.details["retry_after_seconds"] == 42.0
 
 
+@pytest.mark.cwe(770)
 async def test_the_limiter_runs_before_the_wallet_is_even_read() -> None:
     """Shedding load must not cost a database round trip.
 

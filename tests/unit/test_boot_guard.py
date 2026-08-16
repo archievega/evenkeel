@@ -6,6 +6,7 @@ control that is most tempting to weaken during an incident precisely because
 nothing fails when you do.
 """
 
+import pytest
 from pydantic import SecretStr
 
 from evenkeel.setup.config import (
@@ -30,6 +31,7 @@ def test_a_correctly_configured_deployment_has_no_problems() -> None:
     assert production_config_problems(hardened()) == []
 
 
+@pytest.mark.cwe(1188)
 def test_the_default_secret_is_refused() -> None:
     settings = hardened()
     settings.app.secret_key = SecretStr("change-me")
@@ -61,6 +63,7 @@ def test_a_well_known_database_password_is_refused() -> None:
     assert any("database.password" in problem for problem in problems)
 
 
+@pytest.mark.cwe(1188)
 def test_the_placeholder_identity_provider_is_refused() -> None:
     """The claim three documents used to make and the code did not.
 
@@ -96,6 +99,7 @@ def test_every_problem_is_reported_not_just_the_first() -> None:
     assert "database.password" in problems
 
 
+@pytest.mark.cwe(1188)
 def test_the_default_settings_are_not_production_ready() -> None:
     """The out-of-the-box configuration must fail this check.
 

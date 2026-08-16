@@ -33,6 +33,7 @@ def test_withdrawal_beyond_balance_is_refused() -> None:
     assert wallet.balance.amount == Decimal("10.00")
 
 
+@pytest.mark.cwe(681)
 def test_balance_survives_a_repeated_fractional_amount() -> None:
     """The float-drift regression, stated as a test.
 
@@ -47,6 +48,7 @@ def test_balance_survives_a_repeated_fractional_amount() -> None:
     assert wallet.balance.is_zero()
 
 
+@pytest.mark.cwe(681)
 def test_mixing_currencies_raises_instead_of_adding() -> None:
     wallet = make_wallet("10.00")
 

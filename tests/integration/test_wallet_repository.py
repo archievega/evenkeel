@@ -45,6 +45,7 @@ class TestOwnerScoping:
 
         assert await wallets.read(wallet.id_, owner) is not None
 
+    @pytest.mark.cwe(639)
     async def test_another_owner_gets_nothing(
         self, wallets: SqlaWalletRepository, session: AsyncSession
     ) -> None:
@@ -60,6 +61,7 @@ class TestOwnerScoping:
 
         assert await wallets.read(wallet.id_, OwnerId(uuid4())) is None
 
+    @pytest.mark.cwe(639)
     async def test_listing_returns_only_the_owner_rows(
         self, wallets: SqlaWalletRepository, session: AsyncSession
     ) -> None:
@@ -74,6 +76,7 @@ class TestOwnerScoping:
 
 
 class TestOptimisticConcurrency:
+    @pytest.mark.cwe(362)
     async def test_a_stale_version_does_not_overwrite(
         self, wallets: SqlaWalletRepository, session: AsyncSession
     ) -> None:
@@ -89,6 +92,7 @@ class TestOptimisticConcurrency:
         # holds version 1 and must lose rather than silently overwrite.
         assert await wallets.update(wallet, expected_version=1) is False
 
+    @pytest.mark.cwe(362)
     async def test_two_concurrent_sessions_cannot_both_commit(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -134,6 +138,7 @@ class TestOptimisticConcurrency:
 
 
 class TestRowLocking:
+    @pytest.mark.cwe(362)
     async def test_for_update_blocks_a_second_reader(
         self,
         session_factory: async_sessionmaker[AsyncSession],

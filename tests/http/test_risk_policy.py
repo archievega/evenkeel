@@ -62,6 +62,7 @@ async def test_a_refusal_is_a_403_problem_document(
     assert problem["details"] == {"reference": "ref-42"}
 
 
+@pytest.mark.cwe(209)
 async def test_a_refusal_does_not_say_which_rule_fired(
     client: AsyncClient,
     owner_id: OwnerId,

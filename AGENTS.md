@@ -201,6 +201,9 @@ test caught them the same afternoon it was written.
 
 1. `docs/adr/` — the decisions and the reasoning, newest first
 2. `README.md` — what the template claims
-3. `docs/SECURITY_CONTROLS.md` — control → enforcement → proof, with CWE ids
-4. `PLAN.md` — the working plan, open defects, and every trap already hit
+3. `docs/SECURITY_CONTROLS.md` — control → enforcement → proof, with CWE ids,
+   cross-checked against the tests by `tests/unit/test_security_receipts.py`
+4. `docs/THREAT_MODEL.md` — assets, boundaries, and what is deliberately not
+   defended
+5. `PLAN.md` — the working plan, open defects, and every trap already hit
    (untracked; ask the human if it is not there)

@@ -2,6 +2,7 @@ import asyncio
 from functools import partial
 from uuid import uuid4
 
+import pytest
 from httpx import AsyncClient
 
 from evenkeel.domain.value_objects.ids import OwnerId
@@ -19,6 +20,7 @@ async def open_wallet(client: AsyncClient, owner_id: OwnerId) -> str:
     return str(response.json()["id"])
 
 
+@pytest.mark.cwe(306)
 async def test_a_request_without_credentials_is_rejected(client: AsyncClient) -> None:
     response = await client.post("/v1/wallets", json={"currency": "EUR"})
 
@@ -64,6 +66,7 @@ async def test_overdraft_is_refused_with_a_problem_document(
     assert "correlation_id" in body
 
 
+@pytest.mark.cwe(837)
 async def test_a_retried_deposit_is_applied_once(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -84,6 +87,7 @@ async def test_a_retried_deposit_is_applied_once(
     assert first.json()["entry_id"] == second.json()["entry_id"]
 
 
+@pytest.mark.cwe(668)
 async def test_one_owners_idempotency_key_does_not_collide_with_anothers(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -116,6 +120,7 @@ async def test_one_owners_idempotency_key_does_not_collide_with_anothers(
     assert first.json()["entry_id"] != second.json()["entry_id"]
 
 
+@pytest.mark.cwe(668)
 async def test_reusing_a_key_with_a_different_payload_is_still_refused(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -138,6 +143,7 @@ async def test_reusing_a_key_with_a_different_payload_is_still_refused(
     assert changed.json()["code"] == "IDEMPOTENCY_KEY_REUSED"
 
 
+@pytest.mark.cwe(204)
 async def test_another_owner_sees_the_wallet_as_absent(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -169,6 +175,7 @@ async def test_another_owner_cannot_read_the_ledger(
     assert response.status_code == 404
 
 
+@pytest.mark.cwe(209)
 async def test_a_negative_amount_is_rejected_at_the_edge(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -299,6 +306,7 @@ async def test_two_concurrent_requests_with_one_key_move_money_once(
     assert balance.json()["balance"] == "1.00"
 
 
+@pytest.mark.cwe(209)
 async def test_a_domain_error_does_not_echo_the_rejected_value(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:
@@ -319,6 +327,7 @@ async def test_a_domain_error_does_not_echo_the_rejected_value(
     assert "NOT-A-CURRENCY" not in response.text
 
 
+@pytest.mark.cwe(209)
 async def test_a_domain_error_still_explains_the_rule(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:

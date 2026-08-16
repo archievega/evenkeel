@@ -58,6 +58,7 @@ class TestLedgerOwnerScoping:
 
         assert len(page.items) == 1
 
+    @pytest.mark.cwe(639)
     async def test_another_owner_reads_nothing(
         self,
         wallets: SqlaWalletRepository,
@@ -78,6 +79,7 @@ class TestLedgerOwnerScoping:
 
         assert page.items == []
 
+    @pytest.mark.cwe(639)
     async def test_a_single_entry_is_scoped_too(
         self,
         wallets: SqlaWalletRepository,

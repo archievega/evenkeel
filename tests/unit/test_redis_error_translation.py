@@ -17,6 +17,7 @@ from evenkeel.application.errors import (
 from evenkeel.infrastructure.adapters.redis._errors import translating_redis_errors
 
 
+@pytest.mark.cwe(755)
 async def test_a_connection_failure_becomes_a_typed_503() -> None:
     with pytest.raises(DependencyUnavailableError) as error:
         async with translating_redis_errors("lock.acquire"):
@@ -63,6 +64,7 @@ async def test_the_driver_message_is_not_carried_into_the_response() -> None:
     assert isinstance(error.value.__cause__, RedisConnectionError)
 
 
+@pytest.mark.cwe(755)
 async def test_a_bug_in_the_adapter_keeps_its_own_identity() -> None:
     """Only `RedisError` is translated, and this is the half that matters.
 

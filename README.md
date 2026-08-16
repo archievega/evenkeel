@@ -209,6 +209,24 @@ only tests that would have caught a broken adapter.
 `make test` runs everything that needs no service; `make test-integration` runs
 the rest.
 
+## Security, with receipts
+
+[`docs/SECURITY_CONTROLS.md`](docs/SECURITY_CONTROLS.md) is 51 controls, one row
+each: the claim, where it is enforced, and the test that proves it, tagged with
+its CWE. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) is the reasoning behind
+them — assets, trust boundaries, and a section on what is deliberately *not*
+defended, because a threat model listing only wins is marketing.
+
+The two are one argument split in half, so they are checked against each other:
+every test the matrix names must exist and carry the CWE assigned to it, every
+`@pytest.mark.cwe` test must be cited, and every CWE in the threat model must
+have a row. That check earned itself immediately — the matrix was citing a test
+renamed some commits earlier, a receipt pointing at nothing.
+
+```bash
+uv run pytest -m cwe        # every test that is somebody's receipt
+```
+
 ## For agents
 
 [`AGENTS.md`](AGENTS.md) is the rule set an agent gets before it edits anything:

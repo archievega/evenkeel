@@ -148,6 +148,7 @@ class TestDistributedLockContract:
                 assert lock.acquired is True
                 raise RuntimeError("boom")
 
+    @pytest.mark.cwe(833)
     async def test_the_default_wait_refuses_instead_of_waiting(
         self, lock_port: DistributedLockPort
     ) -> None:
@@ -179,6 +180,7 @@ class TestDistributedLockContract:
 
             assert acquired is False
 
+    @pytest.mark.cwe(833)
     async def test_an_expired_lease_is_reclaimed(
         self, lock_port: DistributedLockPort
     ) -> None:
@@ -446,6 +448,7 @@ class TestBulkheadContract:
         async with bulkhead.acquire(self.policy(limit=1)) as reclaimed:
             assert reclaimed.acquired is True
 
+    @pytest.mark.cwe(770)
     async def test_concurrent_callers_never_exceed_the_limit(
         self, bulkhead: BulkheadPort
     ) -> None:

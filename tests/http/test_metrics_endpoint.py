@@ -60,6 +60,7 @@ async def test_a_served_request_shows_up_in_the_counters(
     assert 'status="200"' in body
 
 
+@pytest.mark.cwe(770)
 async def test_the_handler_label_is_a_route_template_not_a_path() -> None:
     """One time series per route, not one per wallet id. The failure this
     guards against does not show up until production has enough distinct ids to

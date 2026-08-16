@@ -71,6 +71,7 @@ async def test_readiness_reports_503_when_the_database_is_gone(
     assert body["dependencies"]["database"]["healthy"] is False
 
 
+@pytest.mark.cwe(209)
 async def test_readiness_does_not_leak_connection_details(
     degraded_client: AsyncClient,
 ) -> None:

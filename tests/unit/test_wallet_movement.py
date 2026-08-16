@@ -83,6 +83,7 @@ async def test_successful_withdrawal_commits_once_and_writes_one_entry() -> None
     assert len(harness.ledger.entries) == 1
 
 
+@pytest.mark.cwe(362)
 async def test_the_write_path_locks_the_row() -> None:
     harness = Harness()
 
@@ -91,6 +92,7 @@ async def test_the_write_path_locks_the_row() -> None:
     assert harness.wallets.for_update_calls == 1
 
 
+@pytest.mark.cwe(837)
 async def test_retrying_with_the_same_key_does_not_move_money_twice() -> None:
     harness = Harness()
     request = harness.request("40.00", idempotency_key="abc-123")
@@ -105,6 +107,7 @@ async def test_retrying_with_the_same_key_does_not_move_money_twice() -> None:
     assert len(harness.ledger.entries) == 1
 
 
+@pytest.mark.cwe(837)
 async def test_reusing_a_key_for_a_different_amount_is_rejected() -> None:
     harness = Harness()
     await harness.service.apply(harness.request("10.00", idempotency_key="dup"))
@@ -133,6 +136,7 @@ async def test_a_concurrent_writer_loses_instead_of_overwriting() -> None:
     assert harness.transaction_manager.commits == 0
 
 
+@pytest.mark.cwe(362)
 async def test_a_contended_wallet_reports_busy_rather_than_waiting_forever() -> None:
     harness = Harness(lock=BusyLock())
 
@@ -143,6 +147,7 @@ async def test_a_contended_wallet_reports_busy_rather_than_waiting_forever() -> 
     assert harness.transaction_manager.commits == 0
 
 
+@pytest.mark.cwe(639)
 async def test_another_owner_cannot_touch_the_wallet() -> None:
     """Scoping happens in the query, so a foreign wallet simply does not exist."""
     harness = Harness()

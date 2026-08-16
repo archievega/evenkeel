@@ -9,6 +9,9 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 
 ## Authorization
 
+The reasoning that produced these rows — assets, boundaries, and what is
+deliberately not defended — is in [THREAT_MODEL.md](THREAT_MODEL.md).
+
 | Control | Enforced in | Proven by | CWE |
 | --- | --- | --- | --- |
 | Every wallet read is filtered by owner in SQL, so an unscoped query cannot be written | [`ports/repositories.py`](../src/evenkeel/application/ports/repositories.py), [`adapters/sqla/wallet_repository.py`](../src/evenkeel/infrastructure/adapters/sqla/wallet_repository.py) | `test_another_owner_gets_nothing`, `test_listing_returns_only_the_owner_rows` | [639](https://cwe.mitre.org/data/definitions/639.html) |
@@ -32,7 +35,7 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 | A rejected value never appears in the validation response | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py) | `test_a_negative_amount_is_rejected_at_the_edge` | [209](https://cwe.mitre.org/data/definitions/209.html) |
 | The readiness probe reports a failure class, never the DSN | [`routers/health.py`](../src/evenkeel/presentation/http/routers/health.py) | `test_readiness_does_not_leak_connection_details` | 209 |
 | An unhandled exception returns a correlation id, never a stack trace — in every environment, because `debug` is no longer passed to FastAPI | [`http/errors.py`](../src/evenkeel/presentation/http/errors.py), [`setup/app_factory.py`](../src/evenkeel/setup/app_factory.py) | `test_the_exception_message_never_reaches_the_client`, `test_the_response_carries_a_correlation_id_to_find_the_log` | 209 |
-| Interactive docs are off outside debug | [`setup/app_factory.py`](../src/evenkeel/setup/app_factory.py) | `test_docs_are_absent_outside_debug` (and the inverse, so the test fails if docs break everywhere) | [200](https://cwe.mitre.org/data/definitions/200.html) |
+| Interactive docs are off outside a local run | [`setup/app_factory.py`](../src/evenkeel/setup/app_factory.py) | `test_docs_are_absent_outside_local` (and the inverse, so the test fails if docs break everywhere) | [200](https://cwe.mitre.org/data/definitions/200.html) |
 
 ## Integrity under concurrency
 

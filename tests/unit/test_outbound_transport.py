@@ -130,6 +130,7 @@ async def test_a_healthy_provider_answers(session: aiohttp.ClientSession) -> Non
         assert handler.calls == 1
 
 
+@pytest.mark.cwe(1088)
 async def test_a_timeout_is_a_failure_value_not_an_exception(
     session: aiohttp.ClientSession,
 ) -> None:
@@ -170,6 +171,7 @@ async def test_a_client_error_is_not_retried(session: aiohttp.ClientSession) -> 
         assert handler.calls == 1
 
 
+@pytest.mark.cwe(400)
 async def test_an_oversized_body_is_refused_rather_than_read(
     session: aiohttp.ClientSession,
 ) -> None:
@@ -217,6 +219,7 @@ async def test_the_correlation_id_travels_with_the_call(
         structlog.contextvars.clear_contextvars()
 
 
+@pytest.mark.cwe(770)
 async def test_a_full_bulkhead_refuses_without_calling_the_provider(
     session: aiohttp.ClientSession,
 ) -> None:
@@ -231,6 +234,7 @@ async def test_a_full_bulkhead_refuses_without_calling_the_provider(
         assert handler.calls == 0
 
 
+@pytest.mark.cwe(1088)
 async def test_the_budget_bounds_the_worst_case(
     session: aiohttp.ClientSession,
 ) -> None:
@@ -253,6 +257,7 @@ async def test_the_budget_bounds_the_worst_case(
         assert loop.time() - started < 0.5
 
 
+@pytest.mark.cwe(754)
 async def test_an_unrecognised_decision_is_not_permission(
     session: aiohttp.ClientSession,
 ) -> None:

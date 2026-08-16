@@ -12,14 +12,17 @@ from evenkeel.setup.config import (
 
 
 class TestDenylistForAuthoredKeys:
+    @pytest.mark.cwe(532)
     def test_a_credential_is_stripped(self) -> None:
         assert redact_sensitive({"password": "hunter2"})["password"] == REDACTED
 
+    @pytest.mark.cwe(532)
     def test_anything_ending_in_token_is_stripped(self) -> None:
         redacted = redact_sensitive({"refresh_token": "x", "device_token": "y"})
 
         assert redacted == {"refresh_token": REDACTED, "device_token": REDACTED}
 
+    @pytest.mark.cwe(532)
     def test_nested_structures_are_walked(self) -> None:
         redacted = redact_sensitive({"outer": [{"api_key": "k", "page": 2}]})
 
@@ -46,11 +49,13 @@ class TestAllowlistForForeignPayloads:
 
         assert result == {"loc": ["body"], "msg": "bad"}
 
+    @pytest.mark.cwe(532)
     def test_everything_else_is_redacted(self) -> None:
         result = allowlisted({"msg": "bad", "input": "4111111111111111"}, allow={"msg"})
 
         assert result == {"msg": "bad", "input": REDACTED}
 
+    @pytest.mark.cwe(532)
     def test_a_new_field_is_redacted_without_anyone_updating_a_list(self) -> None:
         """The property the polarity buys.
 
@@ -76,6 +81,7 @@ class TestAllowlistForForeignPayloads:
         assert allowlisted(None, allow={"loc"}) == {}
 
 
+@pytest.mark.cwe(532)
 def test_a_record_from_a_library_is_redacted_too(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -95,6 +101,7 @@ def test_a_record_from_a_library_is_redacted_too(
     assert REDACTED in output
 
 
+@pytest.mark.cwe(532)
 def test_a_secret_inside_a_message_is_redacted(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -109,6 +116,7 @@ def test_a_secret_inside_a_message_is_redacted(
     assert "abc.def.ghi" not in capsys.readouterr().out
 
 
+@pytest.mark.cwe(532)
 def test_the_boot_guard_refuses_sql_echo() -> None:
     """The one this cannot cover: SQLAlchemy prints bound parameters
     positionally, so there is no key to match and nothing to redact. The honest

@@ -108,6 +108,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = ["--strict-markers", "--strict-config", "-q"]
 markers = [
+    "cwe(id): the CWE this test is the receipt for, cross-checked against docs/SECURITY_CONTROLS.md by tests/unit/test_security_receipts.py",
     "integration: needs a real database (testcontainers)",
     "contract: a port contract suite every adapter must pass",
 ]

@@ -43,6 +43,7 @@ async def development() -> AsyncIterator[AsyncClient]:
         yield http
 
 
+@pytest.mark.cwe(200)
 @pytest.mark.parametrize("path", DOC_PATHS)
 async def test_docs_are_absent_outside_local(production: AsyncClient, path: str) -> None:
     response = await production.get(path)

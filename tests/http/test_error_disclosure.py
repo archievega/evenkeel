@@ -51,6 +51,7 @@ async def test_an_unhandled_exception_is_a_500(client: AsyncClient) -> None:
     assert response.status_code == 500
 
 
+@pytest.mark.cwe(209)
 async def test_the_exception_message_never_reaches_the_client(
     client: AsyncClient,
 ) -> None:
@@ -64,6 +65,7 @@ async def test_the_exception_message_never_reaches_the_client(
     assert "Traceback" not in body
 
 
+@pytest.mark.cwe(209)
 async def test_the_response_carries_a_correlation_id_to_find_the_log(
     client: AsyncClient,
 ) -> None:

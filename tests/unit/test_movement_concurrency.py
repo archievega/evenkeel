@@ -51,6 +51,7 @@ def harness_with_yielding_store() -> Harness:
     return harness
 
 
+@pytest.mark.cwe(837)
 async def test_two_in_flight_requests_with_one_key_apply_once() -> None:
     """The claim `docs/SECURITY_CONTROLS.md` makes about CWE-837.
 
