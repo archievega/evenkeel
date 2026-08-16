@@ -69,6 +69,19 @@ services:
     volumes:
       - ./tools/load:/opt/load:ro
     command: ["python", "/opt/load/risk_provider.py"]
+    # Its own, because the application image's healthcheck probes port 8000 and
+    # this stub listens on 9800. Inherited it is permanently unhealthy, which
+    # made `--wait` fail on the command in tools/load/README.md; disabled
+    # instead, `--wait` refuses a service with no healthcheck at all.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request;urllib.request.urlopen('http://localhost:9800/health',timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
       LATENCY_MS: ${RISK_LATENCY_MS:-5}
       JITTER_MS: ${RISK_JITTER_MS:-0}

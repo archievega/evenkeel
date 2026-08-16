@@ -26,6 +26,13 @@ docker run --rm -i --network evenkeel_default -e BASE_URL=http://api:8000 \
 curl -s localhost:8000/metrics | grep evenkeel_external_call_total
 ```
 
+Or read it on a dashboard instead of in a grep — `make observe` brings the same
+stack up with Prometheus and Grafana attached, and the run above fills it:
+
+```bash
+make observe && make load
+```
+
 `RATE_LIMIT` matters: the API allows 30 movements per owner per minute by
 default, and the first attempt at this profile was 88% `429` and looked, at a
 glance, like a load result. The stub provider's behaviour is a set of dials —

@@ -1,0 +1,145 @@
+# Alert rules, with one rule about the rules: none of them may fire on an idle
+# service.
+#
+# That is not a style preference. The dashboards these accompany were ported
+# from a production service whose Redis memory alert divided by a `maxmemory`
+# nobody had set, so it evaluated against zero and paged on a healthy instance
+# until everyone learned to ignore it — which is the state an alert file dies
+# in. Every ratio here is therefore gated on a minimum request rate, and every
+# rule is evaluated against a running-but-idle stack before it ships.
+#
+# A ratio alone is *nearly* safe: `0/0` is NaN in PromQL and NaN compares false,
+# so an idle service does not fire. The gate is for the case that actually
+# pages people at 3am — one request, one failure, a ratio of 1.0.
+groups:
+  - name: evenkeel-availability
+    rules:
+      - alert: EvenkeelDown
+        expr: up{job="evenkeel"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: The API is not answering scrapes
+          description: >-
+            Prometheus cannot reach {{ $labels.instance }}. Every other rule
+            here goes quiet when this one fires, because a service that is not
+            scraped produces no rates to compare.
+
+      - alert: EvenkeelHighErrorRatio
+        expr: |
+          sum(rate(evenkeel_http_requests_total{status=~"5.."}[5m]))
+            /
+          sum(rate(evenkeel_http_requests_total[5m])) > 0.05
+          and
+          sum(rate(evenkeel_http_requests_total[5m])) > 0.2
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: More than 5% of requests are 5xx
+          description: >-
+            {{ $value | humanizePercentage }} of requests over the last five
+            minutes. The second clause is a volume gate: without it a single
+            failed request on an otherwise idle service is a ratio of 1.0.
+
+      - alert: EvenkeelUnhandledExceptions
+        expr: sum(rate(evenkeel_http_request_failures_total[5m])) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Requests are ending in unhandled exceptions
+          description: >-
+            This counter moves only for exceptions no handler caught, so any
+            rate above zero is a bug rather than a rejected request. Refusals —
+            409, 422, 429 — are counted as ordinary responses and never
+            appear here.
+
+  - name: evenkeel-latency
+    rules:
+      - alert: EvenkeelLatencyBudgetExceeded
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le) (rate(evenkeel_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+          and
+          sum(rate(evenkeel_http_requests_total[5m])) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: p99 request latency is above one second
+          description: >-
+            {{ $value | humanizeDuration }} at p99. Ten minutes rather than
+            five: a p99 computed from a handful of requests swings on one slow
+            one, and the histogram's top bucket is 10s so the estimate is only
+            meaningful while traffic is steady.
+
+  - name: evenkeel-guards
+    rules:
+      # The four rules below are the ones this service exists to demonstrate.
+      # A client sees 503 whether the call timed out, was shed by the bulkhead,
+      # or ran out of retry budget; these separate them, because the fix is
+      # different for each.
+      - alert: EvenkeelDependencyDegraded
+        expr: |
+          sum(rate(evenkeel_external_call_total{outcome!="success"}[5m]))
+            /
+          sum(rate(evenkeel_external_call_total[5m])) > 0.1
+          and
+          sum(rate(evenkeel_external_call_total[5m])) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: An outbound dependency is failing more than 10% of calls
+          description: >-
+            {{ $value | humanizePercentage }} of outbound calls did not
+            succeed. Split by `outcome` on the dashboard: `timeout` and
+            `connection` are the provider, `bulkhead_full` and
+            `budget_exhausted` are this service refusing to pile up behind it,
+            and `malformed` or `redirected` mean the provider answered with
+            something that was never a decision.
+
+      - alert: EvenkeelBulkheadShedding
+        expr: sum(rate(evenkeel_external_call_total{outcome="bulkhead_full"}[5m])) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Calls are being shed before they are attempted
+          description: >-
+            The concurrency cap is refusing calls, which is the guard working
+            rather than failing — it is the alternative to an unbounded queue
+            of callers waiting on a slow provider. It still means the provider
+            is slower than the cap assumes, or the cap is too low for current
+            traffic.
+
+      - alert: EvenkeelRateLimiterRefusing
+        expr: |
+          sum(rate(evenkeel_rate_limit_total{decision="denied"}[5m]))
+            /
+          sum(rate(evenkeel_rate_limit_total[5m])) > 0.2
+          and
+          sum(rate(evenkeel_rate_limit_total[5m])) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 20% of movements are being rate limited
+          description: >-
+            Either a client is retrying hard or the limit is set below what
+            normal use needs. Worth knowing because a load run once reported
+            88% `429` and read, at a glance, as a load result.
+
+      - alert: EvenkeelLockContention
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le) (rate(evenkeel_lock_wait_seconds_bucket[5m]))
+          ) > 1
+          and
+          sum(rate(evenkeel_lock_total[5m])) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: p99 lock wait is above one second
+          description: >-
+            Callers are queueing on the same wallet. Sustained, it means the
+            write path is serialised on one row — the lock is doing its job and
+            the shape of the traffic is the problem.

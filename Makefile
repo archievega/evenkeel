@@ -3,6 +3,15 @@
 UV ?= uv
 SRC := src tests
 COMPOSE_NETWORK ?= evenkeel_default
+GRAFANA_PORT ?= 3000
+PROMETHEUS_PORT ?= 9090
+# The degraded-provider profile, because a dashboard of a healthy service shows
+# nothing that a dashboard of any healthy service would not.
+RISK_LATENCY_MS ?= 700
+RISK_BULKHEAD_LIMIT ?= 32
+# Longer than the 30s of a normal load run: a one-minute rate window over a 30s
+# burst draws a triangle, and the panels are easier to read as a plateau.
+IMAGE_LOAD_DURATION ?= 2m
 
 # Colour only when a human is watching.
 #
@@ -43,7 +52,8 @@ step = @printf '$(CYAN)$(BOLD)▸$(RESET) $(BOLD)%s$(RESET)\n' $(1)
 GATES := lint arch types schema-check test
 
 .PHONY: help sync fmt lint arch types schema schema-check test test-integration \
-	check run run-mcp migrate revision new-vertical docs demo load clean
+	check run run-mcp migrate revision new-vertical docs demo load observe \
+	dashboard-image clean
 
 ##@ General
 
@@ -170,6 +180,29 @@ demo: ## Re-record docs/demo.gif (needs a running stack)
 	docker build -q -t evenkeel-vhs tools/demo
 	docker run --rm -v "$(PWD):/vhs" --network $(COMPOSE_NETWORK) \
 		evenkeel-vhs tools/demo/api.tape
+
+observe: ## Bring up the stack with Prometheus and Grafana (localhost:3000)
+	$(call step,observe)
+	METRICS_ENABLED=true RISK_PROVIDER=http RATE_LIMIT=1000000 \
+	RISK_LATENCY_MS=$(RISK_LATENCY_MS) RISK_BULKHEAD_LIMIT=$(RISK_BULKHEAD_LIMIT) \
+	docker compose -f compose.yml -f compose.observability.yml \
+		--profile load up -d --wait
+	@echo "  grafana    http://localhost:$(GRAFANA_PORT)"
+	@echo "  prometheus http://localhost:$(PROMETHEUS_PORT)"
+	@echo "  next: make load"
+
+dashboard-image: ## Re-render docs/img/dashboard.png (needs `make observe` plus --profile render)
+	$(call step,dashboard-image)
+	@mkdir -p docs/img
+	@# k6 exits 99 when a threshold is crossed, and this profile crosses them on
+	@# purpose — the provider is configured to be slow. The picture is the point.
+	@docker run --rm -i --network $(COMPOSE_NETWORK) -e BASE_URL=http://api:8000 \
+		-e DURATION=$(IMAGE_LOAD_DURATION) grafana/k6 run - \
+		< tools/load/wallets.js >/dev/null 2>&1 || true
+	@sleep 10
+	@curl -sfS -o docs/img/dashboard.png \
+		"http://localhost:$(GRAFANA_PORT)/render/d/evenkeel-service?from=now-3m&to=now&width=1600&height=1250&scale=2&kiosk&theme=light"
+	@echo "  wrote docs/img/dashboard.png"
 
 load: ## Drive the API under k6 (needs a running stack, see tools/load/README.md)
 	$(call step,load)
