@@ -1,7 +1,11 @@
-# appcore
+# evenkeel
 
-A production-shaped FastAPI backend template: clean architecture, ports and adapters,
-and an opt-in slice system.
+**A FastAPI backend template that keeps its claims checkable.**
+
+Clean architecture, ports and adapters, and an opt-in slice system — where every
+architectural promise is enforced by a machine rather than described in this file.
+The layer rules are a CI job. The null adapters are held to the real adapters'
+contract by a shared test suite. Readiness is a query, not a constant.
 
 It runs with one command and no credentials. Every optional dependency — Redis,
 Prometheus, tracing, a message queue, an identity provider — ships a **null adapter**,
@@ -16,6 +20,10 @@ Then:
 
 ```bash
 curl -s localhost:8000/ready
+```
+
+```json
+{"status":"ready","dependencies":{"database":{"healthy":true,"error":null}}}
 ```
 
 ---

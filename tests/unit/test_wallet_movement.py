@@ -3,24 +3,24 @@ from uuid import uuid4
 
 import pytest
 
-from appcore.application.errors import (
+from evenkeel.application.errors import (
     ApplicationErrorCode,
     ConflictError,
     NotFoundError,
 )
-from appcore.application.services.wallet_movement import (
+from evenkeel.application.services.wallet_movement import (
     MovementRequest,
     WalletMovementService,
     WalletMovementSettings,
 )
-from appcore.domain.entities.ledger_entry import LedgerDirection
-from appcore.domain.entities.wallet import Wallet
-from appcore.domain.errors import DomainError, DomainErrorCode
-from appcore.domain.value_objects.ids import OwnerId, WalletId
-from appcore.domain.value_objects.money import CurrencyCode, Money
-from appcore.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
-from appcore.infrastructure.adapters.memory.locking import InMemoryDistributedLock
-from appcore.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.domain.entities.ledger_entry import LedgerDirection
+from evenkeel.domain.entities.wallet import Wallet
+from evenkeel.domain.errors import DomainError, DomainErrorCode
+from evenkeel.domain.value_objects.ids import OwnerId, WalletId
+from evenkeel.domain.value_objects.money import CurrencyCode, Money
+from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
+from evenkeel.infrastructure.adapters.memory.locking import InMemoryDistributedLock
+from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
 from tests.fakes.repositories import (
     FakeLedgerRepository,
     FakeTransactionManager,

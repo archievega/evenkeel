@@ -1,7 +1,7 @@
-from appcore.application.ports import Page
-from appcore.domain.entities.ledger_entry import LedgerEntry
-from appcore.domain.entities.wallet import Wallet
-from appcore.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
+from evenkeel.application.ports import Page
+from evenkeel.domain.entities.ledger_entry import LedgerEntry
+from evenkeel.domain.entities.wallet import Wallet
+from evenkeel.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
 
 
 class FakeTransactionManager:

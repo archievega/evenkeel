@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from appcore.application.ports import (
+from evenkeel.application.ports import (
     BulkheadPolicy,
     BulkheadPort,
     DistributedLockPort,
@@ -24,9 +24,9 @@ from appcore.application.ports import (
     RateLimiterPort,
     RateLimitPolicy,
 )
-from appcore.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
-from appcore.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
-from appcore.infrastructure.adapters.memory.locking import (
+from evenkeel.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
+from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
+from evenkeel.infrastructure.adapters.memory.locking import (
     InMemoryDistributedLock,
     InMemoryRateLimiter,
 )
@@ -57,7 +57,7 @@ async def lock_port(request: pytest.FixtureRequest) -> AsyncIterator[Distributed
     if request.param == "memory":
         yield InMemoryDistributedLock()
         return
-    from appcore.infrastructure.adapters.redis.locking import RedisDistributedLock
+    from evenkeel.infrastructure.adapters.redis.locking import RedisDistributedLock
 
     client = await _redis_client()
     yield RedisDistributedLock(client)  # type: ignore[arg-type]
@@ -69,7 +69,7 @@ async def rate_limiter(request: pytest.FixtureRequest) -> AsyncIterator[RateLimi
     if request.param == "memory":
         yield InMemoryRateLimiter()
         return
-    from appcore.infrastructure.adapters.redis.locking import RedisRateLimiter
+    from evenkeel.infrastructure.adapters.redis.locking import RedisRateLimiter
 
     client = await _redis_client()
     yield RedisRateLimiter(client)  # type: ignore[arg-type]
@@ -81,7 +81,7 @@ async def bulkhead(request: pytest.FixtureRequest) -> AsyncIterator[BulkheadPort
     if request.param == "memory":
         yield InMemoryBulkhead()
         return
-    from appcore.infrastructure.adapters.redis.bulkhead import RedisBulkhead
+    from evenkeel.infrastructure.adapters.redis.bulkhead import RedisBulkhead
 
     client = await _redis_client()
     yield RedisBulkhead(client)  # type: ignore[arg-type]
@@ -95,7 +95,7 @@ async def idempotency_store(
     if request.param == "memory":
         yield InMemoryIdempotencyStore()
         return
-    from appcore.infrastructure.adapters.redis.idempotency import RedisIdempotencyStore
+    from evenkeel.infrastructure.adapters.redis.idempotency import RedisIdempotencyStore
 
     client = await _redis_client()
     yield RedisIdempotencyStore(client)  # type: ignore[arg-type]

@@ -77,4 +77,4 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status == 200 else 1)"
 
-CMD ["appcore-web"]
+CMD ["evenkeel-web"]

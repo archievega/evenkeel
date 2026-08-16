@@ -4,10 +4,10 @@ from uuid import uuid4
 
 import pytest
 
-from appcore.domain.entities.wallet import Wallet, WalletStatus
-from appcore.domain.errors import DomainError, DomainErrorCode
-from appcore.domain.value_objects.ids import OwnerId, WalletId
-from appcore.domain.value_objects.money import CurrencyCode, Money
+from evenkeel.domain.entities.wallet import Wallet, WalletStatus
+from evenkeel.domain.errors import DomainError, DomainErrorCode
+from evenkeel.domain.value_objects.ids import OwnerId, WalletId
+from evenkeel.domain.value_objects.money import CurrencyCode, Money
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 EUR = CurrencyCode("EUR")

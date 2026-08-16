@@ -8,9 +8,9 @@ services:
       target: runtime
     environment:
       APP__DATABASE__HOST: db
-      APP__DATABASE__USER: appcore
-      APP__DATABASE__PASSWORD: appcore
-      APP__DATABASE__DATABASE: appcore
+      APP__DATABASE__USER: evenkeel
+      APP__DATABASE__PASSWORD: evenkeel
+      APP__DATABASE__DATABASE: evenkeel
       APP__APP__DEBUG: "true"
       APP__APP__LOGGING__JSON_LOGS: "false"
     ports:
@@ -44,9 +44,9 @@ services:
     command: ["alembic", "upgrade", "head"]
     environment:
       APP__DATABASE__HOST: db
-      APP__DATABASE__USER: appcore
-      APP__DATABASE__PASSWORD: appcore
-      APP__DATABASE__DATABASE: appcore
+      APP__DATABASE__USER: evenkeel
+      APP__DATABASE__PASSWORD: evenkeel
+      APP__DATABASE__DATABASE: evenkeel
     depends_on:
       db:
         condition: service_healthy
@@ -60,9 +60,9 @@ services:
   db:
     image: postgres:17.4-alpine
     environment:
-      POSTGRES_USER: appcore
-      POSTGRES_PASSWORD: appcore
-      POSTGRES_DB: appcore
+      POSTGRES_USER: evenkeel
+      POSTGRES_PASSWORD: evenkeel
+      POSTGRES_DB: evenkeel
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -73,7 +73,7 @@ services:
     healthcheck:
       # The API's `depends_on` waits for this, so "started" never means
       # "accepting queries" -- the classic first-boot crash loop.
-      test: ["CMD-SHELL", "pg_isready -U appcore -d appcore"]
+      test: ["CMD-SHELL", "pg_isready -U evenkeel -d evenkeel"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -51,124 +51,6 @@ wheels = [
 ]
 
 [[package]]
-name = "appcore"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "dishka" },
-    { name = "fastapi" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "structlog" },
-    { name = "uuid-utils" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-metrics = [
-    { name = "prometheus-client" },
-]
-redis = [
-    { name = "redis" },
-]
-tracing = [
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-sqlalchemy" },
-    { name = "opentelemetry-sdk" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "httpx" },
-    { name = "import-linter" },
-    { name = "mypy" },
-    { name = "pip-audit" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "testcontainers" },
-]
-lint = [
-    { name = "import-linter" },
-    { name = "pre-commit" },
-    { name = "ruff" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
-test = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "testcontainers" },
-]
-typecheck = [
-    { name = "mypy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.16" },
-    { name = "asyncpg", specifier = ">=0.30" },
-    { name = "dishka", specifier = ">=1.6" },
-    { name = "fastapi", specifier = ">=0.118" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'tracing'", specifier = ">=1.30" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'tracing'", specifier = ">=0.52b0" },
-    { name = "opentelemetry-instrumentation-sqlalchemy", marker = "extra == 'tracing'", specifier = ">=0.52b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.30" },
-    { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.23" },
-    { name = "pydantic", specifier = ">=2.11" },
-    { name = "pydantic-settings", specifier = ">=2.10" },
-    { name = "redis", marker = "extra == 'redis'", specifier = ">=6.0" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.43" },
-    { name = "structlog", specifier = ">=25.4" },
-    { name = "uuid-utils", specifier = ">=0.11" },
-    { name = "uvicorn", specifier = ">=0.36" },
-]
-provides-extras = ["redis", "metrics", "tracing"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "bandit", specifier = ">=1.8" },
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "import-linter", specifier = ">=2.3" },
-    { name = "mypy", specifier = ">=1.18" },
-    { name = "pip-audit", specifier = ">=2.9" },
-    { name = "pre-commit", specifier = ">=4.0" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=1.0" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "ruff", specifier = ">=0.14" },
-    { name = "testcontainers", extras = ["postgres"], specifier = ">=4.9" },
-]
-lint = [
-    { name = "import-linter", specifier = ">=2.3" },
-    { name = "pre-commit", specifier = ">=4.0" },
-    { name = "ruff", specifier = ">=0.14" },
-]
-security = [
-    { name = "bandit", specifier = ">=1.8" },
-    { name = "pip-audit", specifier = ">=2.9" },
-]
-test = [
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=1.0" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "testcontainers", extras = ["postgres"], specifier = ">=4.9" },
-]
-typecheck = [{ name = "mypy", specifier = ">=1.18" }]
-
-[[package]]
 name = "asgiref"
 version = "3.12.1"
 source = { registry = "https://pypi.org/simple" }
@@ -608,6 +490,124 @@ sdist = { url = "https://files.pythonhosted.org/packages/88/7f/731ff914b0255d3d0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/75/23/529140fe1aab80fc6992f93a706deec709140a6397439139a054e1515c45/docker-7.2.0-py3-none-any.whl", hash = "sha256:a3f45fdeb9165e2d25d9a1d02ddf3bc70fb572cf5ebbf9b58558c22caf29b71f", size = 148775, upload-time = "2026-07-09T14:53:45.224Z" },
 ]
+
+[[package]]
+name = "evenkeel"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "dishka" },
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "structlog" },
+    { name = "uuid-utils" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+metrics = [
+    { name = "prometheus-client" },
+]
+redis = [
+    { name = "redis" },
+]
+tracing = [
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-instrumentation-fastapi" },
+    { name = "opentelemetry-instrumentation-sqlalchemy" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "bandit" },
+    { name = "httpx" },
+    { name = "import-linter" },
+    { name = "mypy" },
+    { name = "pip-audit" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "testcontainers" },
+]
+lint = [
+    { name = "import-linter" },
+    { name = "pre-commit" },
+    { name = "ruff" },
+]
+security = [
+    { name = "bandit" },
+    { name = "pip-audit" },
+]
+test = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "testcontainers" },
+]
+typecheck = [
+    { name = "mypy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.16" },
+    { name = "asyncpg", specifier = ">=0.30" },
+    { name = "dishka", specifier = ">=1.6" },
+    { name = "fastapi", specifier = ">=0.118" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'tracing'", specifier = ">=1.30" },
+    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'tracing'", specifier = ">=0.52b0" },
+    { name = "opentelemetry-instrumentation-sqlalchemy", marker = "extra == 'tracing'", specifier = ">=0.52b0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.30" },
+    { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.23" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "pydantic-settings", specifier = ">=2.10" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=6.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.43" },
+    { name = "structlog", specifier = ">=25.4" },
+    { name = "uuid-utils", specifier = ">=0.11" },
+    { name = "uvicorn", specifier = ">=0.36" },
+]
+provides-extras = ["redis", "metrics", "tracing"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bandit", specifier = ">=1.8" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "import-linter", specifier = ">=2.3" },
+    { name = "mypy", specifier = ">=1.18" },
+    { name = "pip-audit", specifier = ">=2.9" },
+    { name = "pre-commit", specifier = ">=4.0" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=1.0" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "ruff", specifier = ">=0.14" },
+    { name = "testcontainers", extras = ["postgres"], specifier = ">=4.9" },
+]
+lint = [
+    { name = "import-linter", specifier = ">=2.3" },
+    { name = "pre-commit", specifier = ">=4.0" },
+    { name = "ruff", specifier = ">=0.14" },
+]
+security = [
+    { name = "bandit", specifier = ">=1.8" },
+    { name = "pip-audit", specifier = ">=2.9" },
+]
+test = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=1.0" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "testcontainers", extras = ["postgres"], specifier = ">=4.9" },
+]
+typecheck = [{ name = "mypy", specifier = ">=1.18" }]
 
 [[package]]
 name = "fastapi"

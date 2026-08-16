@@ -25,13 +25,13 @@ The layer rules live in `.importlinter` and run as a build step
 
 - **Layers.** `entrypoints → setup → presentation → infrastructure →
   application → domain`, imports only downward.
-- **Domain purity.** `appcore.domain` may not import SQLAlchemy, FastAPI,
+- **Domain purity.** `evenkeel.domain` may not import SQLAlchemy, FastAPI,
   Pydantic, Redis, structlog, dishka or anything else outside the standard
   library.
-- **Application purity.** `appcore.application` may import ports; it may not
+- **Application purity.** `evenkeel.application` may import ports; it may not
   import drivers, frameworks, or any sibling layer.
 
-`appcore.logging` sits outside the layer stack deliberately. It is a leaf with
+`evenkeel.logging` sits outside the layer stack deliberately. It is a leaf with
 no dependencies, and forcing it into the order would either push logging beneath
 the domain or duplicate it per layer.
 

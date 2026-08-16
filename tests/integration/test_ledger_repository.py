@@ -7,12 +7,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from appcore.domain.entities.ledger_entry import LedgerDirection, LedgerEntry
-from appcore.domain.entities.wallet import Wallet
-from appcore.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
-from appcore.domain.value_objects.money import CurrencyCode, Money
-from appcore.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
-from appcore.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
+from evenkeel.domain.entities.ledger_entry import LedgerDirection, LedgerEntry
+from evenkeel.domain.entities.wallet import Wallet
+from evenkeel.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
+from evenkeel.domain.value_objects.money import CurrencyCode, Money
+from evenkeel.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
+from evenkeel.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
 
 pytestmark = pytest.mark.integration
 

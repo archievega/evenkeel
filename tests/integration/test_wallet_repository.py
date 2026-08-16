@@ -16,10 +16,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from appcore.domain.entities.wallet import Wallet
-from appcore.domain.value_objects.ids import OwnerId, WalletId
-from appcore.domain.value_objects.money import CurrencyCode, Money
-from appcore.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
+from evenkeel.domain.entities.wallet import Wallet
+from evenkeel.domain.value_objects.ids import OwnerId, WalletId
+from evenkeel.domain.value_objects.money import CurrencyCode, Money
+from evenkeel.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
 
 pytestmark = pytest.mark.integration
 

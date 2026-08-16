@@ -14,8 +14,8 @@ from dishka.integrations.fastapi import FastapiProvider
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from appcore.setup.app_factory import create_app
-from appcore.setup.config import Settings
+from evenkeel.setup.app_factory import create_app
+from evenkeel.setup.config import Settings
 
 
 class UnreachableDatabaseProvider(Provider):

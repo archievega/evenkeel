@@ -28,8 +28,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from appcore.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
-from appcore.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
+from evenkeel.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
+from evenkeel.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
 
 pytestmark = pytest.mark.integration
 
@@ -56,7 +56,7 @@ def database_url() -> Iterator[str]:
 def _migrated(database_url: str) -> None:
     config = Config(os.path.join(ROOT, "alembic.ini"))
     config.set_main_option(
-        "script_location", os.path.join(ROOT, "src/appcore/infrastructure/sqla/alembic")
+        "script_location", os.path.join(ROOT, "src/evenkeel/infrastructure/sqla/alembic")
     )
     config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(config, "head")

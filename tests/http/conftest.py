@@ -6,7 +6,7 @@ from dishka import Provider, Scope, from_context, make_async_container, provide
 from dishka.integrations.fastapi import FastapiProvider
 from httpx import ASGITransport, AsyncClient
 
-from appcore.application.interactors.wallets import (
+from evenkeel.application.interactors.wallets import (
     DepositToWalletInteractor,
     GetWalletInteractor,
     ListLedgerEntriesInteractor,
@@ -15,7 +15,7 @@ from appcore.application.interactors.wallets import (
     OpenWalletInteractor,
     WithdrawFromWalletInteractor,
 )
-from appcore.application.ports import (
+from evenkeel.application.ports import (
     Clock,
     DistributedLockPort,
     IdempotencyStore,
@@ -26,21 +26,21 @@ from appcore.application.ports import (
     TransactionManager,
     WalletRepository,
 )
-from appcore.application.ports.identity import IdentityProvider
-from appcore.application.services.wallet_movement import (
+from evenkeel.application.ports.identity import IdentityProvider
+from evenkeel.application.services.wallet_movement import (
     WalletMovementService,
     WalletMovementSettings,
 )
-from appcore.domain.value_objects.ids import OwnerId
-from appcore.infrastructure.adapters.dev_identity import DevIdentityProvider
-from appcore.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
-from appcore.infrastructure.adapters.memory.locking import (
+from evenkeel.domain.value_objects.ids import OwnerId
+from evenkeel.infrastructure.adapters.dev_identity import DevIdentityProvider
+from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
+from evenkeel.infrastructure.adapters.memory.locking import (
     InMemoryDistributedLock,
     InMemoryRateLimiter,
 )
-from appcore.infrastructure.adapters.noop.metrics import NoopMetrics
-from appcore.setup.app_factory import create_app
-from appcore.setup.config import Settings
+from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.setup.app_factory import create_app
+from evenkeel.setup.config import Settings
 from tests.fakes.repositories import (
     FakeLedgerRepository,
     FakeTransactionManager,

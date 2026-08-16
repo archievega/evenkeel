@@ -48,9 +48,9 @@ jobs:
       postgres:
         image: postgres:17.4-alpine
         env:
-          POSTGRES_USER: appcore
-          POSTGRES_PASSWORD: appcore
-          POSTGRES_DB: appcore
+          POSTGRES_USER: evenkeel
+          POSTGRES_PASSWORD: evenkeel
+          POSTGRES_DB: evenkeel
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s
@@ -64,7 +64,7 @@ jobs:
       # a healthy Postgres, and starting a second one inside Docker just to
       # reach the same database costs time for nothing. Locally, with no
       # TEST_DATABASE_URL set, testcontainers takes over.
-      TEST_DATABASE_URL: postgresql+asyncpg://appcore:appcore@localhost:5432/appcore
+      TEST_DATABASE_URL: postgresql+asyncpg://evenkeel:evenkeel@localhost:5432/evenkeel
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -81,18 +81,18 @@ jobs:
       postgres:
         image: postgres:17.4-alpine
         env:
-          POSTGRES_USER: appcore
-          POSTGRES_PASSWORD: appcore
-          POSTGRES_DB: appcore
+          POSTGRES_USER: evenkeel
+          POSTGRES_PASSWORD: evenkeel
+          POSTGRES_DB: evenkeel
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s
           --health-timeout 3s --health-retries 10
     env:
       APP__DATABASE__HOST: localhost
-      APP__DATABASE__USER: appcore
-      APP__DATABASE__PASSWORD: appcore
-      APP__DATABASE__DATABASE: appcore
+      APP__DATABASE__USER: evenkeel
+      APP__DATABASE__PASSWORD: evenkeel
+      APP__DATABASE__DATABASE: evenkeel
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -162,7 +162,7 @@ jobs:
           target: runtime
           push: false
           load: true
-          tags: appcore:${{ github.sha }}
+          tags: evenkeel:${{ github.sha }}
           # Passed through env rather than interpolated: a ref name is
           # attacker-influenced text, and interpolating such values directly
           # into build args or run steps is the standard workflow-injection
@@ -175,14 +175,14 @@ jobs:
       - name: scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: appcore:${{ github.sha }}
+          image-ref: evenkeel:${{ github.sha }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
       - name: software bill of materials
         uses: anchore/sbom-action@v0
         with:
-          image: appcore:${{ github.sha }}
+          image: evenkeel:${{ github.sha }}
           format: cyclonedx-json
           artifact-name: sbom.cyclonedx.json
 

@@ -35,7 +35,7 @@ test-integration: ## Run tests against a real database (needs Docker)
 check: lint arch types test ## Full local quality gate
 
 run: ## Start the API
-	$(UV) run appcore-web
+	$(UV) run evenkeel-web
 
 migrate: ## Apply migrations
 	$(UV) run alembic upgrade head

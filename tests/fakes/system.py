@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from appcore.application.ports import (
+from evenkeel.application.ports import (
     DistributedLock,
     DistributedLockPort,
     RateLimitDecision,

@@ -1,4 +1,4 @@
-from appcore.logging import REDACTED, allowlisted, redact_sensitive
+from evenkeel.logging import REDACTED, allowlisted, redact_sensitive
 
 
 class TestDenylistForAuthoredKeys:

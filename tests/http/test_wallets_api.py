@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from httpx import AsyncClient
 
-from appcore.domain.value_objects.ids import OwnerId
+from evenkeel.domain.value_objects.ids import OwnerId
 
 
 def auth(owner_id: OwnerId) -> dict[str, str]:

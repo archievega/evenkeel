@@ -62,13 +62,13 @@ migrations:
     - name: postgres:17.4-alpine
       alias: postgres
   variables:
-    POSTGRES_USER: appcore
-    POSTGRES_PASSWORD: appcore
-    POSTGRES_DB: appcore
+    POSTGRES_USER: evenkeel
+    POSTGRES_PASSWORD: evenkeel
+    POSTGRES_DB: evenkeel
     APP__DATABASE__HOST: postgres
-    APP__DATABASE__USER: appcore
-    APP__DATABASE__PASSWORD: appcore
-    APP__DATABASE__DATABASE: appcore
+    APP__DATABASE__USER: evenkeel
+    APP__DATABASE__PASSWORD: evenkeel
+    APP__DATABASE__DATABASE: evenkeel
   script:
     - uv run alembic upgrade head
     - uv run alembic downgrade base
@@ -99,4 +99,4 @@ image:
     - docker build --target runtime
       --build-arg APP_COMMIT=$CI_COMMIT_SHA
       --build-arg APP_VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_REF_NAME}
-      -t appcore:$CI_COMMIT_SHA .
+      -t evenkeel:$CI_COMMIT_SHA .
