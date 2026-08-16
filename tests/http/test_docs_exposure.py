@@ -6,7 +6,11 @@ is one ternary in the app factory, which is precisely the kind of line that gets
 inverted during a debugging session and never put back.
 """
 
-from collections.abc import AsyncIterator
+import builtins
+import sys
+from collections.abc import AsyncIterator, Callable
+from types import ModuleType
+from typing import Any
 
 import pytest
 from dishka import make_async_container
@@ -56,6 +60,37 @@ async def test_docs_are_present_locally(development: AsyncClient, path: str) -> 
     response = await development.get(path)
 
     assert response.status_code == 200
+
+
+async def test_the_app_boots_without_the_docs_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An optional dependency must never be load-bearing.
+
+    Scalar lives behind the `docs` extra. Installed without it, a local run has
+    to lose `/scalar` and keep everything else — including `/docs`, which is
+    built into FastAPI. Caught in CI the hard way: the container image installed
+    a narrower set of extras than the test environment, so the import that every
+    test exercised was the one the deployed app did not have.
+    """
+    monkeypatch.delitem(sys.modules, "evenkeel.presentation.http.routers.docs", False)
+    monkeypatch.setattr(builtins, "__import__", _refusing_import("scalar_fastapi"))
+
+    async with await client_for(environment="local") as http:
+        assert (await http.get("/scalar")).status_code == 404
+        assert (await http.get("/docs")).status_code == 200
+        assert (await http.get("/openapi.json")).status_code == 200
+
+
+def _refusing_import(blocked: str) -> Callable[..., ModuleType]:
+    real = builtins.__import__
+
+    def guarded(name: str, *args: Any, **kwargs: Any) -> ModuleType:
+        if name == blocked:
+            raise ImportError(f"No module named {blocked!r}")
+        return real(name, *args, **kwargs)
+
+    return guarded
 
 
 async def test_the_health_endpoints_stay_available_in_production(
