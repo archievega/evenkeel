@@ -26,6 +26,11 @@ from evenkeel.presentation.http.dependencies import (
     IdempotencyKey,
     current_principal,
 )
+from evenkeel.presentation.http.responses import (
+    collection_responses,
+    movement_responses,
+    read_responses,
+)
 from evenkeel.presentation.http.schemas.v1.wallets import (
     LedgerEntryResponse,
     LedgerPageResponse,
@@ -44,7 +49,13 @@ from evenkeel.presentation.http.schemas.v1.wallets import (
 router = APIRouter(route_class=DishkaRoute, dependencies=[Depends(current_principal)])
 
 
-@router.post("", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WalletResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Open a wallet",
+    responses=collection_responses(),
+)
 async def open_wallet(
     payload: OpenWalletRequest,
     principal: CurrentPrincipal,
@@ -72,13 +83,24 @@ async def open_wallet(
     )
 
 
-@router.get("", response_model=WalletPageResponse)
+@router.get(
+    "",
+    response_model=WalletPageResponse,
+    summary="List the caller's wallets",
+    responses=collection_responses(),
+)
 async def list_wallets(
     principal: CurrentPrincipal,
     interactor: FromDishka[ListWalletsInteractor],
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
 ) -> WalletPageResponse:
+    """Cursor-paginated, newest first.
+
+    Pass `next_cursor` back as `cursor` to walk further. Offsets are not
+    supported on purpose: they make deep pages linearly slower and let
+    concurrent inserts shift rows between pages.
+    """
     page = await interactor(
         ListWalletsQuery(owner_id=principal.owner_id, limit=limit, cursor=cursor)
     )
@@ -88,19 +110,30 @@ async def list_wallets(
     )
 
 
-@router.get("/{wallet_id}", response_model=WalletResponse)
+@router.get(
+    "/{wallet_id}",
+    response_model=WalletResponse,
+    summary="Read one wallet",
+    responses=read_responses(),
+)
 async def get_wallet(
     wallet_id: UUID,
     principal: CurrentPrincipal,
     interactor: FromDishka[GetWalletInteractor],
 ) -> WalletResponse:
+    """A wallet owned by someone else is reported as absent, not forbidden."""
     wallet = await interactor(
         GetWalletQuery(wallet_id=WalletId(wallet_id), owner_id=principal.owner_id)
     )
     return WalletResponse.of(wallet)
 
 
-@router.post("/{wallet_id}/deposits", response_model=MovementResponse)
+@router.post(
+    "/{wallet_id}/deposits",
+    response_model=MovementResponse,
+    summary="Credit a wallet",
+    responses=movement_responses(),
+)
 async def deposit(
     wallet_id: UUID,
     payload: MoneyRequest,
@@ -108,6 +141,12 @@ async def deposit(
     interactor: FromDishka[DepositToWalletInteractor],
     idempotency_key: IdempotencyKey = None,
 ) -> MovementResponse:
+    """Send `Idempotency-Key` and a retry cannot apply twice.
+
+    The response then carries `replayed: true` and the original `entry_id`.
+    Reusing a key with a different payload is refused with 409 rather than
+    silently confirmed.
+    """
     result = await interactor(
         DepositCommand(
             wallet_id=WalletId(wallet_id),
@@ -123,7 +162,12 @@ async def deposit(
     return _movement_response(result)
 
 
-@router.post("/{wallet_id}/withdrawals", response_model=MovementResponse)
+@router.post(
+    "/{wallet_id}/withdrawals",
+    response_model=MovementResponse,
+    summary="Debit a wallet",
+    responses=movement_responses(),
+)
 async def withdraw(
     wallet_id: UUID,
     payload: MoneyRequest,
@@ -131,6 +175,10 @@ async def withdraw(
     interactor: FromDishka[WithdrawFromWalletInteractor],
     idempotency_key: IdempotencyKey = None,
 ) -> MovementResponse:
+    """Refused with 409 if the balance is short; nothing is written.
+
+    Accepts `Idempotency-Key` on the same terms as a deposit.
+    """
     result = await interactor(
         WithdrawCommand(
             wallet_id=WalletId(wallet_id),
@@ -146,7 +194,12 @@ async def withdraw(
     return _movement_response(result)
 
 
-@router.get("/{wallet_id}/entries", response_model=LedgerPageResponse)
+@router.get(
+    "/{wallet_id}/entries",
+    response_model=LedgerPageResponse,
+    summary="List ledger entries for a wallet",
+    responses=read_responses(),
+)
 async def list_entries(
     wallet_id: UUID,
     principal: CurrentPrincipal,
@@ -154,6 +207,10 @@ async def list_entries(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
 ) -> LedgerPageResponse:
+    """Append-only history for one wallet, newest first.
+
+    The balance is a cache of these entries, so replaying them reconstructs it.
+    """
     page = await interactor(
         ListLedgerQuery(
             wallet_id=WalletId(wallet_id),

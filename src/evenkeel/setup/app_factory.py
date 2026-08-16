@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,51 @@ from evenkeel.setup.config import Settings, load_settings
 from evenkeel.setup.ioc.container import create_container
 
 log = get_logger(__name__)
+
+API_DESCRIPTION = """
+A wallet ledger, used here as the reference vertical for a backend template.
+
+**Reading the error contract.** Every failure is an
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
+document. Branch on `code`, never on `title` — titles are prose and may be
+reworded, codes are part of the contract. Every response carries a
+`correlation_id`, in the body and in the `X-Correlation-ID` header; quote it
+when reporting a failure and it will find the server-side log line.
+
+**Retrying safely.** Send an `Idempotency-Key` header on deposits and
+withdrawals. A retry then returns the original entry with `replayed: true`
+instead of moving money again — including when the retry arrives while the
+first request is still in flight. Reusing one key with a different payload is
+refused with `409`, never silently confirmed.
+
+**Ownership.** Every read is filtered by owner in SQL rather than checked
+afterwards, so a wallet belonging to someone else is reported as absent rather
+than forbidden. The status code cannot be used to discover which ids exist.
+
+**Money.** Amounts are decimal strings, never JSON numbers, and arithmetic
+across currencies is refused rather than converted.
+"""
+
+TAGS_METADATA = [
+    {
+        "name": "wallets",
+        "description": (
+            "Open a wallet, move money, read the ledger. Balance changes are "
+            "guarded by an idempotency key, a per-wallet lock and an optimistic "
+            "version check, each covering what the others cannot."
+        ),
+    },
+    {
+        "name": "operations",
+        "description": (
+            "Probes for the orchestrator, unversioned because deployment "
+            "manifests reference them. `/health` deliberately checks nothing "
+            "external: a liveness probe that fails during a database blip "
+            "restarts every healthy replica and turns a partial outage into a "
+            "total one. `/ready` is the one that checks dependencies."
+        ),
+    },
+]
 
 
 @asynccontextmanager
@@ -63,6 +109,12 @@ def create_app(
     is_production = not resolved_settings.app.is_local
     app = FastAPI(
         title=resolved_settings.app.name,
+        description=API_DESCRIPTION,
+        version=os.getenv("APP_VERSION", "dev"),
+        openapi_tags=TAGS_METADATA,
+        # Declared so a "try it" client in any renderer knows where to send.
+        # Relative, because the template does not know its own public host.
+        servers=[{"url": "/", "description": "This deployment"}],
         # `debug` is never passed through. Starlette's ServerErrorMiddleware
         # checks it BEFORE consulting the installed handler, so a truthy value
         # replaces the RFC 9457 document with an HTML page carrying the

@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 
 class ApplicationErrorCode(StrEnum):
     VALIDATION_FAILED = "VALIDATION_FAILED"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
     WALLET_NOT_FOUND = "WALLET_NOT_FOUND"
     WALLET_VERSION_CONFLICT = "WALLET_VERSION_CONFLICT"
     WALLET_BUSY = "WALLET_BUSY"
@@ -15,6 +16,7 @@ class ApplicationErrorCode(StrEnum):
 
 APPLICATION_ERROR_MESSAGES: dict[ApplicationErrorCode, str] = {
     ApplicationErrorCode.VALIDATION_FAILED: "Request failed validation",
+    ApplicationErrorCode.UNAUTHENTICATED: "Authentication required",
     ApplicationErrorCode.WALLET_NOT_FOUND: "Wallet not found",
     ApplicationErrorCode.WALLET_VERSION_CONFLICT: "Wallet was modified concurrently",
     ApplicationErrorCode.WALLET_BUSY: "Wallet is being modified, retry shortly",
@@ -53,6 +55,17 @@ class ApplicationError(Exception):
             self.default_status_code if status_code is None else status_code
         )
         super().__init__(self.message)
+
+
+class UnauthenticatedError(ApplicationError):
+    """No usable credential.
+
+    Lives here rather than beside an adapter: which identity technology failed
+    is an infrastructure detail, but "the caller is not authenticated" is an
+    application outcome with a status code and a place in the API contract.
+    """
+
+    default_status_code = 401
 
 
 class ValidationError(ApplicationError):

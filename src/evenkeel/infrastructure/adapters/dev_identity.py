@@ -1,12 +1,11 @@
 from uuid import UUID
 
-from evenkeel.application.errors import ApplicationError, ApplicationErrorCode
+from evenkeel.application.errors import (
+    ApplicationErrorCode,
+    UnauthenticatedError,
+)
 from evenkeel.application.ports.identity import IdentityProvider, Principal
 from evenkeel.domain.value_objects.ids import OwnerId
-
-
-class UnauthenticatedError(ApplicationError):
-    default_status_code = 401
 
 
 class DevIdentityProvider(IdentityProvider):
@@ -22,13 +21,13 @@ class DevIdentityProvider(IdentityProvider):
     async def authenticate(self, credential: str | None) -> Principal:
         if not credential:
             raise UnauthenticatedError(
-                ApplicationErrorCode.VALIDATION_FAILED,
+                ApplicationErrorCode.UNAUTHENTICATED,
                 details={"authorization": "missing credential"},
             )
         try:
             return Principal(owner_id=OwnerId(UUID(credential)))
         except ValueError as exc:
             raise UnauthenticatedError(
-                ApplicationErrorCode.VALIDATION_FAILED,
+                ApplicationErrorCode.UNAUTHENTICATED,
                 details={"authorization": "credential must be a UUID owner id"},
             ) from exc

@@ -18,7 +18,7 @@ router = APIRouter(route_class=DishkaRoute, tags=["operations"])
 PROBE_TIMEOUT_SECONDS = 2.0
 
 
-@router.get("/health", response_model=LivenessResponse)
+@router.get("/health", response_model=LivenessResponse, summary="Liveness")
 async def liveness() -> LivenessResponse:
     """Liveness: is this process still able to serve?
 
@@ -29,7 +29,20 @@ async def liveness() -> LivenessResponse:
     return LivenessResponse(status="alive")
 
 
-@router.get("/ready", response_model=ReadinessResponse)
+@router.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    summary="Readiness",
+    responses={
+        503: {
+            "model": ReadinessResponse,
+            "description": (
+                "A dependency is unreachable. The body names which one and the "
+                "class of failure, never the connection string."
+            ),
+        }
+    },
+)
 async def readiness(
     engine: FromDishka[AsyncEngine], response: Response
 ) -> ReadinessResponse:
@@ -49,7 +62,7 @@ async def readiness(
     )
 
 
-@router.get("/version", response_model=VersionResponse)
+@router.get("/version", response_model=VersionResponse, summary="Build identity")
 async def version() -> VersionResponse:
     """What is actually deployed here.
 

@@ -8,16 +8,52 @@ from evenkeel.domain.entities.wallet import Wallet
 
 
 class OpenWalletRequest(BaseModel):
-    currency: str = Field(min_length=3, max_length=3, examples=["EUR"])
+    model_config = ConfigDict(json_schema_extra={"examples": [{"currency": "EUR"}]})
+
+    currency: str = Field(
+        min_length=3,
+        max_length=3,
+        description="ISO 4217 alphabetic code, uppercase. Fixed for the wallet's life.",
+        examples=["EUR"],
+    )
 
 
 class MoneyRequest(BaseModel):
     # gt=0 duplicates a domain rule on purpose: the schema rejects nonsense at
     # the edge with a helpful 422, while the domain keeps the invariant true for
     # every caller, including background jobs that never touch HTTP.
-    amount: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
-    currency: str = Field(min_length=3, max_length=3)
-    description: str = Field(default="", max_length=200)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"amount": "100.00", "currency": "EUR", "description": "salary"}]
+        }
+    )
+
+    amount: Decimal = Field(
+        gt=0,
+        max_digits=20,
+        decimal_places=2,
+        description=(
+            "Positive, at most two decimal places. Sent as a JSON string so no "
+            "float rounding happens in transit."
+        ),
+        examples=["100.00"],
+    )
+    currency: str = Field(
+        min_length=3,
+        max_length=3,
+        description="Must match the wallet's currency; a mismatch is refused, not converted.",
+        examples=["EUR"],
+    )
+    description: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "Free text recorded on the ledger entry. Part of the idempotency "
+            "fingerprint: the same key with a different description is a "
+            "different request."
+        ),
+        examples=["salary"],
+    )
 
 
 class WalletResponse(BaseModel):
@@ -65,11 +101,16 @@ class LedgerEntryResponse(BaseModel):
 
 
 class MovementResponse(BaseModel):
-    entry_id: UUID
+    entry_id: UUID = Field(description="The ledger entry this movement wrote.")
     wallet_id: UUID
-    balance: Decimal
+    balance: Decimal = Field(description="Balance after the movement.")
     currency: str
-    replayed: bool
+    replayed: bool = Field(
+        description=(
+            "True when an idempotency key matched an earlier request. Nothing "
+            "was applied a second time; the entry is the original one."
+        )
+    )
 
 
 class WalletPageResponse(BaseModel):
