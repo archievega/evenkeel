@@ -43,6 +43,9 @@ tracing = [
     "opentelemetry-instrumentation-fastapi>=0.52b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.52b0",
 ]
+docs = [
+    "scalar-fastapi>=1.0",
+]
 
 [project.scripts]
 evenkeel-web = "evenkeel.entrypoints.web:main"

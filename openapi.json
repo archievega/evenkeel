@@ -1,0 +1,1101 @@
+{
+  "components": {
+    "schemas": {
+      "DependencyStatus": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "healthy"
+        ],
+        "title": "DependencyStatus",
+        "type": "object"
+      },
+      "LedgerEntryResponse": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "balance_after": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance After",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "amount",
+          "currency",
+          "balance_after",
+          "description",
+          "occurred_at"
+        ],
+        "title": "LedgerEntryResponse",
+        "type": "object"
+      },
+      "LedgerPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntryResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "LedgerPageResponse",
+        "type": "object"
+      },
+      "LivenessResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LivenessResponse",
+        "type": "object"
+      },
+      "MoneyRequest": {
+        "examples": [
+          {
+            "amount": "100.00",
+            "currency": "EUR",
+            "description": "salary"
+          }
+        ],
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,18}|(?=[\\d.]{1,21}0*$)\\d{0,18}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "description": "Positive, at most two decimal places. Sent as a JSON string so no float rounding happens in transit.",
+            "examples": [
+              "100.00"
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "description": "Must match the wallet's currency; a mismatch is refused, not converted.",
+            "examples": [
+              "EUR"
+            ],
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Free text recorded on the ledger entry. Part of the idempotency fingerprint: the same key with a different description is a different request.",
+            "examples": [
+              "salary"
+            ],
+            "maxLength": 200,
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "MoneyRequest",
+        "type": "object"
+      },
+      "MovementResponse": {
+        "properties": {
+          "balance": {
+            "description": "Balance after the movement.",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "entry_id": {
+            "description": "The ledger entry this movement wrote.",
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "replayed": {
+            "description": "True when an idempotency key matched an earlier request. Nothing was applied a second time; the entry is the original one.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "wallet_id": {
+            "format": "uuid",
+            "title": "Wallet Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "wallet_id",
+          "balance",
+          "currency",
+          "replayed"
+        ],
+        "title": "MovementResponse",
+        "type": "object"
+      },
+      "OpenWalletRequest": {
+        "examples": [
+          {
+            "currency": "EUR"
+          }
+        ],
+        "properties": {
+          "currency": {
+            "description": "ISO 4217 alphabetic code, uppercase. Fixed for the wallet's life.",
+            "examples": [
+              "EUR"
+            ],
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency"
+        ],
+        "title": "OpenWalletRequest",
+        "type": "object"
+      },
+      "Problem": {
+        "description": "RFC 9457 `application/problem+json`.",
+        "examples": [
+          {
+            "code": "WALLET_INSUFFICIENT_FUNDS",
+            "correlation_id": "489b1a95-1123-43ef-b6f6-03bbb5e15248",
+            "details": {
+              "balance": "70.00",
+              "requested": "1000.00"
+            },
+            "instance": "/v1/wallets/01a0084a-d15c-7122-bc8c-a81b38e8a2f4/withdrawals",
+            "status": 409,
+            "title": "Wallet insufficient funds",
+            "type": "about:blank#wallet_insufficient_funds"
+          }
+        ],
+        "properties": {
+          "code": {
+            "description": "Machine-readable code. Branch on this, never on `title` — titles are prose and may be reworded; codes are part of the contract.",
+            "title": "Code",
+            "type": "string"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quote this when reporting the failure; it is the key to the server-side log line. Present on every response this API produces.",
+            "title": "Correlation Id"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured context, shape depending on `code`. Never contains the rejected value or any server internals.",
+            "title": "Details"
+          },
+          "instance": {
+            "description": "Path of the request that produced the problem.",
+            "title": "Instance",
+            "type": "string"
+          },
+          "status": {
+            "description": "HTTP status code, repeated for clients that lose it.",
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Short human-readable summary. Safe to display.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Stable URI reference identifying the problem kind.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "instance"
+        ],
+        "title": "Problem",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "dependencies": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DependencyStatus"
+            },
+            "title": "Dependencies",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "dependencies"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "VersionResponse": {
+        "properties": {
+          "built_at": {
+            "title": "Built At",
+            "type": "string"
+          },
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit",
+          "built_at"
+        ],
+        "title": "VersionResponse",
+        "type": "object"
+      },
+      "WalletPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WalletResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "WalletPageResponse",
+        "type": "object"
+      },
+      "WalletResponse": {
+        "properties": {
+          "balance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "balance",
+          "currency",
+          "status",
+          "version"
+        ],
+        "title": "WalletResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "\nA wallet ledger, used here as the reference vertical for a backend template.\n\n**Reading the error contract.** Every failure is an\n[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`\ndocument. Branch on `code`, never on `title` — titles are prose and may be\nreworded, codes are part of the contract. Every response carries a\n`correlation_id`, in the body and in the `X-Correlation-ID` header; quote it\nwhen reporting a failure and it will find the server-side log line.\n\n**Retrying safely.** Send an `Idempotency-Key` header on deposits and\nwithdrawals. A retry then returns the original entry with `replayed: true`\ninstead of moving money again — including when the retry arrives while the\nfirst request is still in flight. Reusing one key with a different payload is\nrefused with `409`, never silently confirmed.\n\n**Ownership.** Every read is filtered by owner in SQL rather than checked\nafterwards, so a wallet belonging to someone else is reported as absent rather\nthan forbidden. The status code cannot be used to discover which ids exist.\n\n**Money.** Amounts are decimal strings, never JSON numbers, and arithmetic\nacross currencies is refused rather than converted.\n",
+    "title": "evenkeel",
+    "version": "dev"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "Liveness: is this process still able to serve?\n\nDeliberately checks nothing external. A liveness probe that fails when the\ndatabase is briefly unreachable makes the orchestrator kill every healthy\nreplica during a database blip, turning a partial outage into a total one.",
+        "operationId": "liveness_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/ready": {
+      "get": {
+        "description": "Readiness: can this process serve *right now*?\n\nReturning a hardcoded \"ready\" is worse than having no probe at all: the\nload balancer keeps routing to a replica that cannot reach its database,\nand the deploy that broke the connection string still goes green.",
+        "operationId": "readiness_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "A dependency is unreachable. The body names which one and the class of failure, never the connection string."
+          }
+        },
+        "summary": "Readiness",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/v1/wallets": {
+      "get": {
+        "description": "Cursor-paginated, newest first.\n\nPass `next_cursor` back as `cursor` to walk further. Offsets are not\nsupported on purpose: they make deep pages linearly slower and let\nconcurrent inserts shift rows between pages.",
+        "operationId": "list_wallets_v1_wallets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List the caller's wallets",
+        "tags": [
+          "wallets"
+        ]
+      },
+      "post": {
+        "description": "Handlers stay this thin.\n\nParse, call one use case, shape the response. No business rules, no\nrepository access, no transaction handling -- that is what keeps the same\nuse case reusable from a worker, a CLI or an MCP tool.",
+        "operationId": "open_wallet_v1_wallets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenWalletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open a wallet",
+        "tags": [
+          "wallets"
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}": {
+      "get": {
+        "description": "A wallet owned by someone else is reported as absent, not forbidden.",
+        "operationId": "get_wallet_v1_wallets__wallet_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wallet_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Wallet Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No such wallet for this owner. A wallet that exists but belongs to someone else is reported as absent, so the status cannot be used to probe which ids are real."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read one wallet",
+        "tags": [
+          "wallets"
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/deposits": {
+      "post": {
+        "description": "Send `Idempotency-Key` and a retry cannot apply twice.\n\nThe response then carries `replayed: true` and the original `entry_id`.\nReusing a key with a different payload is refused with 409 rather than\nsilently confirmed.",
+        "operationId": "deposit_v1_wallets__wallet_id__deposits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wallet_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Wallet Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoneyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No such wallet for this owner. A wallet that exists but belongs to someone else is reported as absent, so the status cannot be used to probe which ids are real."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, or the idempotency key was reused with a different payload. `code` distinguishes them."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too many movements for this owner. `details.retry_after_seconds` says how long to wait. Nothing was applied."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "A dependency the operation needs is unreachable. Transient; retry with the same idempotency key."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Credit a wallet",
+        "tags": [
+          "wallets"
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/entries": {
+      "get": {
+        "description": "Append-only history for one wallet, newest first.\n\nThe balance is a cache of these entries, so replaying them reconstructs it.",
+        "operationId": "list_entries_v1_wallets__wallet_id__entries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wallet_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Wallet Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No such wallet for this owner. A wallet that exists but belongs to someone else is reported as absent, so the status cannot be used to probe which ids are real."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List ledger entries for a wallet",
+        "tags": [
+          "wallets"
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/withdrawals": {
+      "post": {
+        "description": "Refused with 409 if the balance is short; nothing is written.\n\nAccepts `Idempotency-Key` on the same terms as a deposit.",
+        "operationId": "withdraw_v1_wallets__wallet_id__withdrawals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wallet_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Wallet Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoneyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "No such wallet for this owner. A wallet that exists but belongs to someone else is reported as absent, so the status cannot be used to probe which ids are real."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, or the idempotency key was reused with a different payload. `code` distinguishes them."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "The request failed validation, or violated a domain rule that is not a conflict — mixing currencies, for example. `details.errors` names the offending fields but never echoes their values."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too many movements for this owner. `details.retry_after_seconds` says how long to wait. Nothing was applied."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "A dependency the operation needs is unreachable. Transient; retry with the same idempotency key."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Debit a wallet",
+        "tags": [
+          "wallets"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "description": "What is actually deployed here.\n\nInjected at build time. Without it, \"is the fix live?\" is answered by\nguesswork during the incident where it matters most.",
+        "operationId": "version_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Build identity",
+        "tags": [
+          "operations"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "This deployment",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Open a wallet, move money, read the ledger. Balance changes are guarded by an idempotency key, a per-wallet lock and an optimistic version check, each covering what the others cannot.",
+      "name": "wallets"
+    },
+    {
+      "description": "Probes for the orchestrator, unversioned because deployment manifests reference them. `/health` deliberately checks nothing external: a liveness probe that fails during a database blip restarts every healthy replica and turns a partial outage into a total one. `/ready` is the one that checks dependencies.",
+      "name": "operations"
+    }
+  ]
+}

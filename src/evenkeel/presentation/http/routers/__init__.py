@@ -4,7 +4,9 @@ from evenkeel.presentation.http.routers.health import router as health_router
 from evenkeel.presentation.http.routers.v1.wallets import router as wallets_router
 
 
-def setup_routes(app: FastAPI, *, prefix: str, wallets_prefix: str) -> None:
+def setup_routes(
+    app: FastAPI, *, prefix: str, wallets_prefix: str, include_docs: bool = False
+) -> None:
     """Mount versioned routers under a caller-supplied prefix.
 
     Prefixes arrive as plain strings rather than as the settings object:
@@ -16,6 +18,12 @@ def setup_routes(app: FastAPI, *, prefix: str, wallets_prefix: str) -> None:
     silently breaks every deployment manifest.
     """
     app.include_router(health_router)
+    if include_docs:
+        # Mounted on the same condition as /docs and /redoc, not separately —
+        # one decision about the documentation surface, taken in one place.
+        from evenkeel.presentation.http.routers.docs import router as docs_router
+
+        app.include_router(docs_router)
 
     versioned = APIRouter(prefix=prefix)
     versioned.include_router(wallets_router, prefix=wallets_prefix, tags=["wallets"])

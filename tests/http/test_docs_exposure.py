@@ -1,7 +1,7 @@
 """Interactive docs outside a local run, gap 2 in docs/SECURITY_CONTROLS.md.
 
-`/docs` and `/openapi.json` describe every endpoint, every field and every
-error shape. That is a gift to a developer and a map to anyone else. The switch
+`/docs`, `/redoc`, `/scalar` and `/openapi.json` describe every endpoint, every
+field and every error shape. That is a gift to a developer and a map to anyone else. The switch
 is one ternary in the app factory, which is precisely the kind of line that gets
 inverted during a debugging session and never put back.
 """
@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from evenkeel.setup.app_factory import create_app
 from evenkeel.setup.config import AppConfig, Settings
 
-DOC_PATHS = ["/docs", "/redoc", "/openapi.json"]
+DOC_PATHS = ["/docs", "/redoc", "/openapi.json", "/scalar"]
 
 
 async def client_for(*, environment: str) -> AsyncClient:

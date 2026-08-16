@@ -18,6 +18,12 @@ lint: ## Lint (formatting is checked, not applied)
 	$(UV) run ruff format --check $(SRC)
 	$(UV) run ruff check $(SRC)
 
+schema: ## Regenerate the committed OpenAPI document
+	$(UV) run python tools/dump_openapi.py
+
+schema-check: ## Fail if openapi.json no longer matches the application
+	$(UV) run python tools/dump_openapi.py --check
+
 arch: ## Verify the layer contracts
 	$(UV) run lint-imports
 
@@ -32,7 +38,7 @@ test-integration: ## Run tests against a real database (needs Docker)
 
 # One command, and it is the same list CI runs. A local gate that is weaker
 # than CI just moves the failure to the pull request.
-check: lint arch types test ## Full local quality gate
+check: lint arch types schema-check test ## Full local quality gate
 
 run: ## Start the API
 	$(UV) run evenkeel-web

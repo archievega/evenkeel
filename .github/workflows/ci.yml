@@ -34,6 +34,11 @@ jobs:
       # No `continue-on-error`. A type check that cannot fail the build is
       # documentation that happens to execute.
       - run: uv run mypy src
+      # The published contract is an artefact under review, like a migration.
+      # Drift here means the API changed and the document consumers build
+      # against did not.
+      - name: openapi.json matches the application
+        run: uv run python tools/dump_openapi.py --check
 
   test:
     name: tests
@@ -228,6 +233,28 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  contract:
+    name: api compatibility
+    runs-on: ubuntu-latest
+    # Only on pull requests: the question "does this break a consumer" needs
+    # something to compare against, and on a push to main that baseline is the
+    # commit that just landed.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: fetch the base contract
+        run: git show ${{ github.event.pull_request.base.sha }}:openapi.json > /tmp/base-openapi.json
+      # Reports what changed for a consumer, and fails only on the breaking
+      # subset. Additive changes are expected and should not block a merge.
+      - name: breaking change check
+        uses: oasdiff/oasdiff-action/breaking@main
+        with:
+          base: /tmp/base-openapi.json
+          revision: openapi.json
+          fail-on: ERR
+
   gate:
     name: quality gate
     runs-on: ubuntu-latest
@@ -238,7 +265,7 @@ jobs:
     # the only status branch protection needs to require. Adding or renaming a
     # job then never means reconfiguring the repository.
     if: always()
-    needs: [quality, test, migrations, security, image, smoke]
+    needs: [quality, test, migrations, security, image, smoke, contract]
     steps:
       - name: Summarise and decide
         env:
@@ -249,6 +276,7 @@ jobs:
             security=${{ needs.security.result }}
             image=${{ needs.image.result }}
             smoke=${{ needs.smoke.result }}
+            contract=${{ needs.contract.result }}
         run: |
           set -euo pipefail
           failed=0
@@ -262,7 +290,10 @@ jobs:
             result="${entry##*=}"
             case "$result" in
               success) icon="✅ passed" ;;
-              skipped) icon="⏭️ skipped"; failed=1 ;;
+              # `contract` only runs on pull requests, so a skip there is
+              # expected rather than a silently-missing gate.
+              skipped) icon="⏭️ skipped"
+                       [ "$name" = "contract" ] || failed=1 ;;
               *)       icon="❌ $result"; failed=1 ;;
             esac
             echo "| $name | $icon |" >> "$GITHUB_STEP_SUMMARY"

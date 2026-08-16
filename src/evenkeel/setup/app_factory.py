@@ -133,6 +133,7 @@ def create_app(
         app,
         prefix=resolved_settings.app.api.prefix,
         wallets_prefix=resolved_settings.app.api.wallets,
+        include_docs=not is_production,
     )
     setup_error_handlers(app)
 

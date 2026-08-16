@@ -86,6 +86,26 @@ GET    /v1/wallets/{id}/entries           ledger history
 GET    /health  /ready  /version          operations
 ```
 
+Every failure is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+`application/problem+json` document, and every status the API can return is
+declared in the schema — including the 409s, the 429 and the 503 that most
+generated specs omit. Branch on `code`, never on `title`.
+
+## API reference
+
+Three renderings of the same document, on a local run only:
+
+| | |
+| --- | --- |
+| `/scalar` | search, a working request client, dark mode |
+| `/docs` | Swagger UI |
+| `/redoc` | ReDoc |
+
+`openapi.json` is committed. CI regenerates it and fails if it drifts — the same
+treatment migrations get — and runs [oasdiff](https://github.com/oasdiff/oasdiff)
+on pull requests so a breaking change to the contract is a red check rather than
+a surprise for whoever built against it.
+
 ## How the tests are organised
 
 Not a pyramid. Two questions, asked separately:
