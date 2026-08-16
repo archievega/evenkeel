@@ -1,0 +1,627 @@
+"""Token verification, against a real key set on a real socket.
+
+Not mocked, for the same reason as `test_outbound_transport.py`: the failures
+worth catching here are ones a mock cannot have. One of them — a key set
+arriving in more than one TCP segment — is invisible to every test that does not
+serve the document in pieces.
+
+One caveat, stated rather than implied. `test_an_alg_none_token_is_refused` and
+its HMAC sibling pass even against `algorithms=[header["alg"]]`, because PyJWT
+2.13 refuses a header algorithm that disagrees with the JWKS key's own. They are
+regression tests for the floor pinned in `pyproject.toml`. The adapter's own
+property — that the allowlist comes from configuration — is
+`test_an_algorithm_outside_the_configured_allowlist_is_refused`.
+"""
+
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from uuid import uuid4
+
+import pytest
+
+pytest.importorskip("jwt", reason="requires the `jwt` extra")
+
+import aiohttp
+import jwt
+from aiohttp import web
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from evenkeel.application.errors import (
+    DependencyUnavailableError,
+    UnauthenticatedError,
+)
+from evenkeel.infrastructure.adapters.http.transport import SessionPolicy, open_session
+from evenkeel.infrastructure.adapters.jwt.identity import (
+    JwtIdentityProvider,
+    JwtPolicy,
+)
+from evenkeel.infrastructure.adapters.jwt.keys import JwksCache, JwksPolicy
+
+ISSUER = "https://issuer.example"
+AUDIENCE = "evenkeel"
+KID = "test-key-1"
+POLICY = JwtPolicy(issuer=ISSUER, audience=AUDIENCE, algorithms=("RS256",))
+
+
+def rsa_key() -> rsa.RSAPrivateKey:
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="module")
+def signing_key() -> rsa.RSAPrivateKey:
+    return rsa_key()
+
+
+def as_jwk(key: rsa.RSAPrivateKey, *, kid: str) -> dict[str, object]:
+    public = jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key(), as_dict=True)
+    return {**public, "kid": kid, "use": "sig", "alg": "RS256"}
+
+
+@pytest.fixture(scope="module")
+def jwks(signing_key: rsa.RSAPrivateKey) -> dict[str, object]:
+    return {"keys": [as_jwk(signing_key, kid=KID)]}
+
+
+def token(
+    signing_key: rsa.RSAPrivateKey, *, kid: str | None = KID, **claims: object
+) -> str:
+    payload: dict[str, object] = {
+        "sub": str(uuid4()),
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 300,
+    }
+    payload.update(claims)
+    return jwt.encode(
+        {k: v for k, v in payload.items() if v is not None},
+        signing_key,
+        algorithm="RS256",
+        headers={"kid": kid} if kid else {},
+    )
+
+
+def forge_hs256(claims: dict[str, object], *, secret: str) -> str:
+    def segment(data: object) -> bytes:
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=")
+
+    signing_input = b".".join(
+        (segment({"alg": "HS256", "typ": "JWT", "kid": KID}), segment(claims))
+    )
+    signature = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
+    return (
+        signing_input + b"." + base64.urlsafe_b64encode(signature).rstrip(b"=")
+    ).decode()
+
+
+class Served:
+    """A JWKS endpoint with a request counter, a latency dial and a segment
+    size — the last of which is what a loopback test otherwise never varies."""
+
+    def __init__(self, document: dict[str, object]) -> None:
+        self.document = document
+        self.requests = 0
+        self.delay = 0.0
+        self.status = 200
+        self.raw: bytes | None = None
+        self.segment_bytes = 0
+        self.segment_delay = 0.01
+        self.endless = False
+
+
+@asynccontextmanager
+async def serving(document: dict[str, object]) -> AsyncIterator[tuple[str, Served]]:
+    state = Served(document)
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        state.requests += 1
+        if state.delay:
+            await asyncio.sleep(state.delay)
+        if state.endless:
+            response = web.StreamResponse(status=200)
+            response.content_type = "application/json"
+            await response.prepare(request)
+            try:
+                while True:
+                    await response.write(b"x" * 8192)
+            except (ConnectionResetError, aiohttp.ClientConnectionError):
+                return response
+        if state.raw is not None:
+            return web.Response(body=state.raw, content_type="text/html")
+        if not state.segment_bytes:
+            return web.json_response(state.document, status=state.status)
+
+        body = json.dumps(state.document).encode()
+        response = web.StreamResponse(status=state.status)
+        response.content_type = "application/json"
+        await response.prepare(request)
+        for start in range(0, len(body), state.segment_bytes):
+            await response.write(body[start : start + state.segment_bytes])
+            await asyncio.sleep(state.segment_delay)
+        await response.write_eof()
+        return response
+
+    app = web.Application()
+    app.router.add_get("/jwks.json", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    try:
+        yield f"http://127.0.0.1:{runner.addresses[0][1]}/jwks.json", state
+    finally:
+        await runner.cleanup()
+
+
+@asynccontextmanager
+async def provider(
+    url: str,
+    *,
+    keys: JwksPolicy | None = None,
+    policy: JwtPolicy = POLICY,
+    session_ms: int = 5_000,
+) -> AsyncIterator[JwtIdentityProvider]:
+    async with open_session(
+        SessionPolicy(backstop_timeout_ms=session_ms), headers={}
+    ) as session:
+        yield JwtIdentityProvider(
+            JwksCache(session, keys or JwksPolicy(url=url, min_refresh_seconds=0.0)),
+            policy,
+        )
+
+
+@pytest.mark.cwe(347)
+async def test_an_algorithm_outside_the_configured_allowlist_is_refused(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """The adapter's own property: the allowlist is configuration.
+
+    A valid RS256 token, signed by the key the issuer published, is refused when
+    the deployment says it accepts only RS512. Nothing about the token changes —
+    only the policy — so this fails the moment the algorithm starts coming from
+    anywhere else.
+    """
+    strict = JwtPolicy(issuer=ISSUER, audience=AUDIENCE, algorithms=("RS512",))
+
+    async with serving(jwks) as (url, _), provider(url, policy=strict) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(347)
+async def test_an_alg_none_token_is_refused(jwks: dict[str, object]) -> None:
+    unsigned = jwt.encode(
+        {"sub": str(uuid4()), "iss": ISSUER, "aud": AUDIENCE, "exp": time.time() + 60},
+        key="",
+        algorithm="none",
+        headers={"kid": KID},
+    )
+
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(unsigned)
+
+
+@pytest.mark.cwe(347)
+async def test_an_hmac_token_signed_with_the_public_key_is_refused(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """The public key is public; honouring `alg: HS256` makes it the secret."""
+    public_pem = (
+        signing_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+    # Assembled by hand rather than with `jwt.encode`, which refuses to sign
+    # HMAC with a PEM key. That guard is on the signing side, and an attacker is
+    # not using our library to forge.
+    forged = forge_hs256(
+        {"sub": str(uuid4()), "iss": ISSUER, "aud": AUDIENCE, "exp": time.time() + 60},
+        secret=public_pem,
+    )
+
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(forged)
+
+
+@pytest.mark.cwe(347)
+async def test_a_token_signed_by_a_different_key_is_refused(
+    jwks: dict[str, object],
+) -> None:
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(rsa_key()))
+
+
+@pytest.mark.cwe(306)
+async def test_a_valid_token_becomes_a_principal(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    owner = uuid4()
+
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        principal = await identity.authenticate(token(signing_key, sub=str(owner)))
+
+    assert principal.owner_id.value == owner
+
+
+@pytest.mark.cwe(306)
+@pytest.mark.parametrize(
+    ("claims", "why"),
+    [
+        ({"exp": int(time.time()) - 600}, "expired"),
+        ({"iss": "https://somebody.else"}, "wrong issuer"),
+        ({"aud": "another-service"}, "wrong audience"),
+        ({"nbf": int(time.time()) + 600}, "not valid yet"),
+        ({"exp": None}, "no expiry at all"),
+        ({"iss": None}, "no issuer"),
+        ({"sub": None}, "no subject"),
+    ],
+)
+async def test_a_token_that_fails_a_claim_is_refused(
+    signing_key: rsa.RSAPrivateKey,
+    jwks: dict[str, object],
+    claims: dict[str, object],
+    why: str,
+) -> None:
+    """The absent-claim cases are what the `require` list carries: without it, a
+    token with no `exp` is a token that never expires."""
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key, **claims))
+
+
+@pytest.mark.cwe(755)
+async def test_a_claim_of_the_wrong_type_is_refused_rather_than_crashing(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """PyJWT calls `int()` on `exp`, and a JSON object raises `TypeError`, which
+    is not under `PyJWTError`. Uncaught, a non-conformant issuer becomes a 500
+    with a stack trace."""
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        for broken in ({"at": "noon"}, ["soon"]):
+            with pytest.raises(UnauthenticatedError):
+                await identity.authenticate(token(signing_key, exp=broken))
+
+
+@pytest.mark.cwe(209)
+async def test_the_refusal_never_says_which_check_failed(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError) as expired:
+            await identity.authenticate(token(signing_key, exp=int(time.time()) - 600))
+        with pytest.raises(UnauthenticatedError) as forged:
+            await identity.authenticate(token(signing_key, sub="not-a-uuid"))
+
+    assert expired.value.details == forged.value.details
+    assert str(expired.value) == str(forged.value)
+
+
+@pytest.mark.cwe(306)
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "alice@example.com",
+        "6A3514EB-1561-4E76-A51E-BED709FF0544",
+        "6a3514eb15614e76a51ebed709ff0544",
+        "urn:uuid:6a3514eb-1561-4e76-a51e-bed709ff0544",
+        "{6a3514eb-1561-4e76-a51e-bed709ff0544}",
+    ],
+)
+async def test_a_subject_that_is_not_a_canonical_uuid_is_refused(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object], subject: str
+) -> None:
+    """`UUID()` is a parser, not a validator: the last four parse to one value.
+    `sub` is opaque to the issuer, so accepting them would merge subjects it
+    considers distinct into one owner holding one set of wallets."""
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key, sub=subject))
+
+
+@pytest.mark.cwe(306)
+async def test_nothing_is_accepted_without_a_credential(
+    jwks: dict[str, object],
+) -> None:
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        for empty in (None, ""):
+            with pytest.raises(UnauthenticatedError):
+                await identity.authenticate(empty)
+
+    assert served.requests == 0, "a missing credential must not reach the network"
+
+
+@pytest.mark.cwe(347)
+async def test_a_token_without_a_key_id_is_refused_without_a_fetch(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key, kid=None))
+
+    assert served.requests == 0
+
+
+@pytest.mark.cwe(770)
+async def test_the_key_set_is_fetched_once_for_many_tokens(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        for _ in range(20):
+            await identity.authenticate(token(signing_key))
+
+    assert served.requests == 1
+
+
+@pytest.mark.cwe(770)
+async def test_a_cold_burst_does_not_stampede_the_provider(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """The delay is what makes the race real rather than theoretical."""
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        served.delay = 0.05
+        await asyncio.gather(
+            *(identity.authenticate(token(signing_key)) for _ in range(50))
+        )
+
+    assert served.requests == 1
+
+
+@pytest.mark.cwe(770)
+async def test_unknown_key_ids_do_not_become_a_fetch_each(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Anyone can mint a token naming a key id that does not exist."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(url, keys=JwksPolicy(url=url, min_refresh_seconds=60.0)) as identity,
+    ):
+        for _ in range(10):
+            with pytest.raises(UnauthenticatedError):
+                await identity.authenticate(token(signing_key, kid="who-knows"))
+
+    assert served.requests == 1
+
+
+@pytest.mark.cwe(770)
+async def test_a_slow_refresh_does_not_stall_tokens_whose_key_is_in_memory(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Once the TTL lapses, waiting on the refresh puts the provider's latency
+    in front of every authentication — including the ones whose key is already
+    loaded and still verifies."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url, keys=JwksPolicy(url=url, ttl_seconds=0.0, min_refresh_seconds=0.0)
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.delay = 0.5
+
+        started = time.perf_counter()
+        await asyncio.gather(
+            *(identity.authenticate(token(signing_key)) for _ in range(20))
+        )
+        elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0, f"{elapsed:.2f}s — the holders queued behind the fetch"
+    assert served.requests == 2
+
+
+@pytest.mark.cwe(755)
+async def test_an_unreachable_key_set_is_a_dependency_failure(
+    signing_key: rsa.RSAPrivateKey,
+) -> None:
+    """503, not 401: the token may be fine and this service cannot tell."""
+    async with provider("http://127.0.0.1:1/jwks.json") as identity:
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(755)
+async def test_a_key_set_that_is_not_json_is_a_dependency_failure(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """A provider behind a captive portal answers 200 with HTML."""
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        served.raw = b"<html>sign in to the wifi</html>"
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(400)
+async def test_an_implausibly_large_key_set_is_refused(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Endless rather than merely large: a body with a known size proves the
+    length check fires, and the point of the cap is that the read stops."""
+    async with serving(jwks) as (url, served), provider(url) as identity:
+        served.endless = True
+        with pytest.raises(DependencyUnavailableError):
+            await asyncio.wait_for(identity.authenticate(token(signing_key)), timeout=5)
+
+
+@pytest.mark.cwe(755)
+async def test_a_key_set_split_across_segments_is_read_whole(
+    signing_key: rsa.RSAPrivateKey,
+) -> None:
+    """`StreamReader.read(n)` returns what is buffered, not `n` bytes.
+
+    Seven keys is an ordinary mid-rotation key set and already exceeds one TCP
+    segment, so reading once truncates it — on every authentication, against
+    every real issuer, while passing on loopback.
+    """
+    rotating = {
+        "keys": [as_jwk(signing_key, kid=KID)]
+        + [as_jwk(rsa_key(), kid=f"retired-{n}") for n in range(6)]
+    }
+
+    async with serving(rotating) as (url, served), provider(url) as identity:
+        served.segment_bytes = 1400
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None
+
+
+@pytest.mark.cwe(755)
+async def test_one_unusable_key_does_not_discard_the_rest(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    mixed = {"keys": [{"kty": "nonsense", "kid": "broken"}, *jwks["keys"]]}  # type: ignore[misc]
+
+    async with serving(mixed) as (url, _), provider(url) as identity:
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None
+
+
+@pytest.mark.cwe(613)
+async def test_an_empty_key_set_revokes_rather_than_reading_as_an_outage(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Publishing `{"keys": []}` is how an issuer revokes everything at once.
+
+    Read as a failure it falls through to the stale-key path, and the keys the
+    issuer just withdrew keep verifying tokens indefinitely.
+    """
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url, keys=JwksPolicy(url=url, ttl_seconds=0.0, min_refresh_seconds=0.0)
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.document = {"keys": []}
+
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(613)
+async def test_a_duplicate_key_id_cannot_displace_the_live_key(
+    signing_key: rsa.RSAPrivateKey,
+) -> None:
+    """Last-wins would let one appended entry blackhole a live key id, and the
+    only symptom is that valid tokens stop verifying."""
+    shadowed = {"keys": [as_jwk(signing_key, kid=KID), as_jwk(rsa_key(), kid=KID)]}
+
+    async with serving(shadowed) as (url, _), provider(url) as identity:
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None
+
+
+@pytest.mark.cwe(755)
+async def test_keys_already_held_survive_the_provider_going_down(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Expiry is a rotation hint, not a revocation. Refusing everything while
+    the provider is down would hand it this service's availability."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url, keys=JwksPolicy(url=url, ttl_seconds=0.0, min_refresh_seconds=0.0)
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.status = 500
+
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None
+    assert served.requests == 2, "the refresh was attempted, and then survived"
+
+
+@pytest.mark.cwe(613)
+async def test_stale_keys_stop_being_an_answer_past_the_grace_ceiling(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """Unbounded, the fallback above means a key withdrawn during an outage
+    keeps working for as long as the outage lasts."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url,
+            keys=JwksPolicy(
+                url=url,
+                ttl_seconds=0.0,
+                min_refresh_seconds=0.0,
+                max_stale_seconds=0.0,
+            ),
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.status = 500
+
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(918)
+async def test_the_key_set_is_not_fetched_through_a_redirect(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """The answer to this request decides who every caller is.
+
+    `aiohttp` follows redirects by default and across hosts, so before the fix a
+    `302` from the issuer's endpoint handed the signing keys to whoever wrote
+    the `Location` — and this test watched an attacker-supplied key be returned
+    and used.
+    """
+    attacker = {"keys": [as_jwk(rsa_key(), kid=KID)]}
+
+    async with serving(attacker) as (attacker_url, attacker_state):
+
+        async def redirecting(request: web.Request) -> web.StreamResponse:
+            raise web.HTTPFound(attacker_url)
+
+        app = web.Application()
+        app.router.add_get("/jwks.json", redirecting)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        issuer_url = f"http://127.0.0.1:{runner.addresses[0][1]}/jwks.json"
+
+        try:
+            async with provider(issuer_url) as identity:
+                with pytest.raises(DependencyUnavailableError):
+                    await identity.authenticate(token(signing_key))
+        finally:
+            await runner.cleanup()
+
+    assert attacker_state.requests == 0, "the redirect target must never be read"
+
+
+@pytest.mark.cwe(770)
+async def test_a_dribbling_key_set_cannot_hold_the_refresh_open(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """One byte every 200ms is a live connection making progress, so nothing
+    below the session's own ceiling stops it — and the refresh holds the lock
+    while it runs."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(url, keys=JwksPolicy(url=url), session_ms=1_500) as identity,
+    ):
+        served.segment_bytes = 1
+        served.segment_delay = 0.2
+
+        started = time.perf_counter()
+        with pytest.raises(DependencyUnavailableError):
+            await asyncio.wait_for(identity.authenticate(token(signing_key)), timeout=10)
+        elapsed = time.perf_counter() - started
+
+    assert elapsed < 5, f"{elapsed:.1f}s — the drip was not bounded"

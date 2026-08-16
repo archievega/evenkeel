@@ -1,8 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import aiohttp
-
 from evenkeel.application.ports import BulkheadPort, MetricsPort
 from evenkeel.application.ports.risk import (
     RiskAssessmentPort,
@@ -14,6 +12,7 @@ from evenkeel.infrastructure.adapters.http.transport import (
     JsonHttpTransport,
     SessionPolicy,
     TransportPolicy,
+    open_session,
 )
 from evenkeel.logging import get_logger
 
@@ -101,48 +100,13 @@ async def open_http_risk_assessment(
     bulkhead: BulkheadPort,
     metrics: MetricsPort,
 ) -> AsyncIterator[RiskAssessmentPort]:
-    """Owns the session, so the caller cannot forget to close it.
+    """Maps configuration onto one provider, over a session it owns.
 
-    A context manager rather than a constructor because an `aiohttp`
-    `ClientSession` that is garbage-collected without `close()` leaves its
-    connector's sockets open and prints an unhelpful warning at interpreter
-    exit. Handing back a closeable object and trusting every call site is how
-    this codebase already leaked four Redis clients.
-
-    Takes policies rather than the settings object: infrastructure sits below
-    `setup` in the layer contract, and translating configuration into policy is
-    the composition root's job. The linter enforces it, and the reason it is
-    worth enforcing is that a config import here would let any adapter reach for
-    any setting, which is how a "small" change to `DatabaseConfig` ends up
-    breaking an HTTP client.
+    The session, its limits and its lifetime are `open_session`'s; what is here
+    is the provider-specific part — the API key and the transport policy.
     """
-    connector = aiohttp.TCPConnector(
-        # The transport-level ceiling on sockets. Related to the bulkhead but
-        # not a substitute: exceeding this limit makes a caller *wait* for a
-        # free connection, which is precisely the unbounded queue the bulkhead
-        # exists to refuse. Keep it above the bulkhead limit so the bulkhead is
-        # the one that answers first, with a decision rather than a delay.
-        limit=session_policy.connection_limit,
-        limit_per_host=session_policy.connection_limit,
-        ttl_dns_cache=session_policy.dns_cache_seconds,
-    )
-    headers = {"User-Agent": "evenkeel-outbound"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    session = aiohttp.ClientSession(
-        connector=connector,
-        headers=headers,
-        # Every request passes its own timeout; this is the backstop for any
-        # path that forgets. aiohttp's default is 5 minutes, which for a call
-        # on a request path is indistinguishable from no timeout at all.
-        timeout=aiohttp.ClientTimeout(total=session_policy.backstop_timeout_ms / 1000),
-        # Ignore HTTP_PROXY and friends unless asked. An environment variable
-        # that silently reroutes outbound traffic through a third party is a
-        # supply-chain problem, not a convenience.
-        trust_env=session_policy.trust_env,
-    )
-    try:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    async with open_session(session_policy, headers=headers) as session:
         yield HttpRiskAssessment(
             JsonHttpTransport(
                 session,
@@ -153,6 +117,3 @@ async def open_http_risk_assessment(
             ),
             path=path,
         )
-    finally:
-        await session.close()
-        log.info("outbound_session_closed", service=transport_policy.service)

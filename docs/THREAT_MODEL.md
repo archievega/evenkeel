@@ -80,10 +80,21 @@ Authentication is declared on the router rather than per endpoint, so a new
 endpoint is protected by default and an unauthenticated one has to be written on
 purpose (CWE-306).
 
+Tokens are verified against the issuer's published key set, with the signing
+algorithm taken from configuration and never from the token — a verifier that
+trusts the header accepts `alg: none`, and accepts HMAC signed with the public
+RSA key as the secret (CWE-347). Issuer and audience are both required, so a
+valid token minted by the same issuer for a sibling service is refused here
+([ADR 9](adr/0009-a-resource-server-not-an-auth-server.md)).
+
 **The known weakness**: the bundled `DevIdentityProvider` treats the bearer
-token as the owner id. Anyone can be anyone. It is a placeholder, the boot guard
-refuses to start with it outside a local run (CWE-1188), and replacing it with a
-JWT/JWKS adapter is one provider method.
+token as the owner id. Anyone can be anyone. It is a placeholder for local runs,
+and the boot guard refuses to start with it — or with a JWT configuration
+missing its issuer, audience or key set — outside one (CWE-1188).
+
+**Not defended**: revocation before expiry. A stolen token works until `exp`.
+The alternative is a blacklist consulted on every request, which trades a query
+per request forever against a window a shorter `exp` already bounds.
 
 ### Tampering — money moving without an authorised movement
 
@@ -138,6 +149,10 @@ The rule is that an error explains the rule and never the input.
   only one call site that forgot — and covers records this codebase did not
   write, plus credentials already rendered into a message (CWE-532).
 * Interactive docs and `/metrics` are off outside a local run (CWE-200).
+* A correlation id supplied by the caller is replaced unless it is printable and
+  bounded. It is echoed into a response header, bound into every log line and
+  forwarded to providers, so taken verbatim it let an unauthenticated caller
+  write their own log lines (CWE-93).
 
 **The limit, stated rather than papered over**: SQLAlchemy's `echo` prints bound
 parameters positionally, `('s3cret',)`, with no key to classify. No redactor can
@@ -178,15 +193,20 @@ still a credential (CWE-532). The published documentation loads one external
 script, pinned by version with an integrity hash that CI recomputes against the
 file the CDN actually serves.
 
-Outbound proxy environment variables are ignored unless explicitly enabled: a
-variable that silently reroutes traffic through a third party is a supply-chain
-problem, not a convenience (CWE-918).
+Outbound proxy environment variables are ignored unless explicitly enabled, and
+outbound redirects are never followed: both silently reroute traffic to a host
+the configuration never named, which is a supply-chain problem rather than a
+convenience (CWE-918). The redirect half matters most on the JWKS fetch — the
+answer to that request is the set of keys that decide who every caller is.
 
 ## What this template does not do
 
 Listed because a threat model that only describes wins is marketing.
 
-* **No real authentication.** `DevIdentityProvider` is a placeholder.
+* **No token issuing.** This is a resource server: it verifies, and there is no
+  login endpoint, password hashing, refresh rotation or session store. The
+  authorisation server is somebody else's, which is the only arrangement in
+  which an access/refresh pair means anything.
 * **No authorization beyond ownership.** No roles, no delegation, no scopes.
 * **No secret management.** Secrets come from the environment. There is no
   vault integration, no rotation, no envelope encryption.

@@ -738,6 +738,10 @@ dependencies = [
 docs = [
     { name = "scalar-fastapi" },
 ]
+jwt = [
+    { name = "aiohttp" },
+    { name = "pyjwt", extra = ["crypto"] },
+]
 mcp = [
     { name = "mcp" },
 ]
@@ -787,6 +791,7 @@ typecheck = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", marker = "extra == 'jwt'", specifier = ">=3.11" },
     { name = "aiohttp", marker = "extra == 'outbound'", specifier = ">=3.12" },
     { name = "alembic", specifier = ">=1.16" },
     { name = "asyncpg", specifier = ">=0.30" },
@@ -796,6 +801,7 @@ requires-dist = [
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.23" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "pydantic-settings", specifier = ">=2.10" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'jwt'", specifier = ">=2.13" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=6.0" },
     { name = "scalar-fastapi", marker = "extra == 'docs'", specifier = ">=1.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.43" },
@@ -803,7 +809,7 @@ requires-dist = [
     { name = "uuid-utils", specifier = ">=0.11" },
     { name = "uvicorn", specifier = ">=0.36" },
 ]
-provides-extras = ["redis", "metrics", "docs", "outbound", "mcp"]
+provides-extras = ["redis", "metrics", "docs", "outbound", "mcp", "jwt"]
 
 [package.metadata.requires-dev]
 dev = [

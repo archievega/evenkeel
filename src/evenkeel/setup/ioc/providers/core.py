@@ -33,8 +33,10 @@ from evenkeel.infrastructure.adapters.system import SystemClock, Uuid7Generator
 from evenkeel.logging import get_logger
 from evenkeel.setup.config import (
     HTTP_RISK,
+    JWT_IDENTITY,
     AppConfig,
     DatabaseConfig,
+    IdentityConfig,
     MovementPolicyConfig,
     ObservabilityConfig,
     RedisConfig,
@@ -65,6 +67,10 @@ class ConfigProvider(Provider):
     @provide
     def observability_config(self, settings: Settings) -> ObservabilityConfig:
         return settings.observability
+
+    @provide
+    def identity_config(self, settings: Settings) -> IdentityConfig:
+        return settings.identity
 
     @provide
     def risk_config(self, settings: Settings) -> RiskConfig:
@@ -125,9 +131,36 @@ class InfrastructureProvider(Provider):
     metrics = from_context(provides=MetricsPort)
 
     @provide
-    def identity_provider(self) -> IdentityProvider:
-        """Swap this one line for the JWT/JWKS adapter to get real authentication."""
-        return DevIdentityProvider()
+    async def identity_provider(
+        self, app: AppConfig, identity: IdentityConfig
+    ) -> AsyncIterable[IdentityProvider]:
+        """Dev by default, JWKS verification when configured.
+
+        One provider method, which was the claim the `DevIdentityProvider`
+        docstring made for months before there was a second adapter to swap in.
+        """
+        if app.identity_provider != JWT_IDENTITY:
+            yield DevIdentityProvider()
+            return
+
+        from evenkeel.infrastructure.adapters.http.transport import SessionPolicy
+        from evenkeel.infrastructure.adapters.jwt.identity import (
+            JwtPolicy,
+            open_jwt_identity,
+        )
+        from evenkeel.infrastructure.adapters.jwt.keys import JwksPolicy
+
+        async with open_jwt_identity(
+            jwt_policy=JwtPolicy(
+                issuer=identity.issuer,
+                audience=identity.audience,
+                algorithms=tuple(identity.algorithms),
+                owner_claim=identity.owner_claim,
+            ),
+            jwks_policy=JwksPolicy(url=identity.jwks_url),
+            session_policy=SessionPolicy(),
+        ) as adapter:
+            yield adapter
 
     @provide
     def clock(self) -> Clock:

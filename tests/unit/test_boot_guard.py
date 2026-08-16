@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from evenkeel.setup.config import (
     AppConfig,
     DatabaseConfig,
+    IdentityConfig,
     Settings,
     production_config_problems,
 )
@@ -24,11 +25,49 @@ def hardened() -> Settings:
             secret_key=SecretStr("a-real-secret-from-the-vault"),
         ),
         database=DatabaseConfig(password=SecretStr("a-real-database-password")),
+        identity=IdentityConfig(
+            issuer="https://issuer.example",
+            audience="evenkeel",
+            jwks_url="https://issuer.example/.well-known/jwks.json",
+        ),
     )
 
 
 def test_a_correctly_configured_deployment_has_no_problems() -> None:
     assert production_config_problems(hardened()) == []
+
+
+@pytest.mark.cwe(1188)
+@pytest.mark.parametrize("field", ["issuer", "audience", "jwks_url"])
+def test_a_token_verifier_missing_its_own_identity_is_refused(field: str) -> None:
+    """A verifier with no issuer or audience does not fail closed — it fails
+    *open*, for anything the wrong issuer signed. Caught at boot rather than on
+    the first request, because the first request may well be the attack."""
+    settings = hardened()
+    setattr(settings.identity, field, "")
+
+    problems = production_config_problems(settings)
+
+    assert any(field in problem for problem in problems)
+
+
+@pytest.mark.cwe(1188)
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://issuer.example/.well-known/jwks.json",
+        "issuer.example/.well-known/jwks.json",
+    ],
+)
+def test_a_key_set_url_that_is_not_https_is_refused(url: str) -> None:
+    """Over http the signing keys are whatever the network says they are, and a
+    scheme-less URL is a permanent 503 discovered on the first request."""
+    settings = hardened()
+    settings.identity.jwks_url = url
+
+    problems = production_config_problems(settings)
+
+    assert any("https" in problem for problem in problems)
 
 
 @pytest.mark.cwe(1188)

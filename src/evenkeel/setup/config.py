@@ -4,6 +4,7 @@ from sqlalchemy.engine import URL
 
 LOCAL = "local"
 DEV_IDENTITY = "dev"
+JWT_IDENTITY = "jwt"
 ALLOW_ALL_RISK = "allow-all"
 HTTP_RISK = "http"
 
@@ -189,6 +190,31 @@ class RiskConfig(BaseModel):
         return self
 
 
+class IdentityConfig(BaseModel):
+    """Verification of tokens issued elsewhere. Nothing here issues one.
+
+    This service is a resource server: no login endpoint, no password hashing,
+    no refresh rotation. An access/refresh pair only means something when the
+    authorisation server is a separate system, and when it is, this is the side
+    that verifies.
+
+    `algorithms` is an allowlist and is deliberately not read from the token —
+    a verifier that trusts the header accepts `alg: none` and accepts HMAC
+    signed with the public key as the secret.
+    """
+
+    issuer: str = ""
+    audience: str = ""
+    jwks_url: str = ""
+    # An allowlist. Configurable because issuers differ (`ES256`, `RS512`), not
+    # because it is where `alg: none` is stopped — that is PyJWT refusing a
+    # header algorithm the JWKS key does not declare.
+    algorithms: tuple[str, ...] = ("RS256",)
+    # Auth0 and Google issue a `sub` like `auth0|abc123`, so the owner is
+    # sometimes a different claim. Whatever it names has to be a UUID.
+    owner_claim: str = "sub"
+
+
 class McpConfig(BaseModel):
     """The MCP transport acts on behalf of exactly one owner.
 
@@ -233,6 +259,7 @@ class Settings(BaseSettings):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     movements: MovementPolicyConfig = Field(default_factory=MovementPolicyConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
+    identity: IdentityConfig = Field(default_factory=IdentityConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 
@@ -259,6 +286,21 @@ def production_config_problems(settings: Settings) -> list[str]:
     version ended up suppressing itself.
     """
     problems: list[str] = []
+    if settings.app.identity_provider == JWT_IDENTITY:
+        # Caught at boot rather than on the first request: a verifier missing
+        # its issuer or audience does not fail closed, it fails *open* for
+        # anything the wrong issuer signed.
+        for field in ("issuer", "audience", "jwks_url"):
+            if not getattr(settings.identity, field):
+                problems.append(
+                    f"identity_provider is 'jwt' but identity.{field} is empty"
+                )
+        url = settings.identity.jwks_url
+        if url and not url.startswith("https://"):
+            problems.append(
+                "identity.jwks_url is not https, so the signing keys are "
+                "whatever the network says they are"
+            )
     if settings.app.identity_provider == DEV_IDENTITY:
         problems.append(
             "app.identity_provider is still 'dev', which authenticates anyone "
