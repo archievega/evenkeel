@@ -11,6 +11,7 @@ whenever an adapter is bound to a port in `setup/ioc`.
 """
 
 from appcore.application.ports import (
+    BulkheadPort,
     Clock,
     DistributedLockPort,
     IdempotencyStore,
@@ -22,12 +23,14 @@ from appcore.application.ports import (
 )
 from appcore.application.ports.identity import IdentityProvider
 from appcore.infrastructure.adapters.dev_identity import DevIdentityProvider
+from appcore.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
 from appcore.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
 from appcore.infrastructure.adapters.memory.locking import (
     InMemoryDistributedLock,
     InMemoryRateLimiter,
 )
 from appcore.infrastructure.adapters.noop.metrics import NoopMetrics
+from appcore.infrastructure.adapters.redis.bulkhead import RedisBulkhead
 from appcore.infrastructure.adapters.redis.idempotency import RedisIdempotencyStore
 from appcore.infrastructure.adapters.redis.locking import (
     RedisDistributedLock,
@@ -83,4 +86,12 @@ def _assert_redis_rate_limiter(adapter: RedisRateLimiter) -> RateLimiterPort:
 
 
 def _assert_redis_idempotency(adapter: RedisIdempotencyStore) -> IdempotencyStore:
+    return adapter
+
+
+def _assert_bulkhead(adapter: InMemoryBulkhead) -> BulkheadPort:
+    return adapter
+
+
+def _assert_redis_bulkhead(adapter: RedisBulkhead) -> BulkheadPort:
     return adapter

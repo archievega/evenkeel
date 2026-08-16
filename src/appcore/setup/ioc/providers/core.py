@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from appcore.application.ports import (
+    BulkheadPort,
     Clock,
     DistributedLockPort,
     IdempotencyStore,
@@ -19,6 +20,7 @@ from appcore.application.ports import (
 )
 from appcore.application.ports.identity import IdentityProvider
 from appcore.infrastructure.adapters.dev_identity import DevIdentityProvider
+from appcore.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
 from appcore.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
 from appcore.infrastructure.adapters.memory.locking import (
     InMemoryDistributedLock,
@@ -142,6 +144,18 @@ class InfrastructureProvider(Provider):
         from appcore.infrastructure.adapters.redis.locking import RedisRateLimiter
 
         return RedisRateLimiter(
+            Redis.from_url(config.url.get_secret_value(), decode_responses=True)
+        )
+
+    @provide
+    def bulkhead(self, config: RedisConfig) -> BulkheadPort:
+        if not config.enabled:
+            return InMemoryBulkhead()
+        from redis.asyncio import Redis
+
+        from appcore.infrastructure.adapters.redis.bulkhead import RedisBulkhead
+
+        return RedisBulkhead(
             Redis.from_url(config.url.get_secret_value(), decode_responses=True)
         )
 

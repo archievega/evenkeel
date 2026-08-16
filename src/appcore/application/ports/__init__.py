@@ -1,3 +1,8 @@
+from appcore.application.ports.bulkhead import (
+    BulkheadLease,
+    BulkheadPolicy,
+    BulkheadPort,
+)
 from appcore.application.ports.infrastructure import (
     Clock,
     DistributedLock,
@@ -18,6 +23,9 @@ from appcore.application.ports.repositories import (
 )
 
 __all__ = [
+    "BulkheadLease",
+    "BulkheadPolicy",
+    "BulkheadPort",
     "Clock",
     "DistributedLock",
     "DistributedLockPort",

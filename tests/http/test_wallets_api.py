@@ -125,7 +125,14 @@ async def test_a_negative_amount_is_rejected_at_the_edge(
     )
 
     assert response.status_code == 422
-    assert response.json()["code"] == "VALIDATION_FAILED"
+    body = response.json()
+    assert body["code"] == "VALIDATION_FAILED"
+    # The rejected value never comes back. Pydantic puts it in `input`, and a
+    # validation report is the easiest place to accidentally echo a card number
+    # or a password typed into the wrong field.
+    error = body["details"]["errors"][0]
+    assert set(error) >= {"loc", "msg", "type"}
+    assert "-5.00" not in str(body)
 
 
 async def test_an_unknown_wallet_is_a_404(client: AsyncClient, owner_id: OwnerId) -> None:

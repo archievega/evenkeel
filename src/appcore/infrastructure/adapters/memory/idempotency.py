@@ -24,4 +24,6 @@ class InMemoryIdempotencyStore(IdempotencyStore):
         return record
 
     async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
+        if ttl_seconds <= 0:
+            return
         self._records[record.key] = (time.monotonic() + ttl_seconds, record)

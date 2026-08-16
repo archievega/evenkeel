@@ -118,4 +118,12 @@ class IdempotencyStore(ABC):
     async def get(self, key: str) -> IdempotencyRecord | None: ...
 
     @abstractmethod
-    async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None: ...
+    async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
+        """Store a record for ``ttl_seconds``.
+
+        A non-positive TTL means "already expired": the record is not stored and
+        a later ``get`` returns ``None``. Leaving this undefined is how two
+        adapters end up disagreeing -- the in-memory one accepted ``0`` while
+        Redis rejected ``SET ... EX 0`` outright, which the contract suite
+        caught only once it ran against a real server.
+        """

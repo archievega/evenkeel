@@ -28,6 +28,8 @@ class RedisIdempotencyStore(IdempotencyStore):
         )
 
     async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
+        if ttl_seconds <= 0:
+            return
         await self._client.set(
             f"idem:{record.key}",
             json.dumps(

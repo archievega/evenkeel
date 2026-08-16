@@ -7,11 +7,15 @@ from fastapi.responses import JSONResponse
 
 from appcore.application.errors import ApplicationError, ApplicationErrorCode
 from appcore.domain.errors import DomainError, DomainErrorCode
-from appcore.logging import get_logger
+from appcore.logging import allowlisted, get_logger
 
 log = get_logger(__name__)
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
+
+# What a client may see from a validation failure: where it happened, what is
+# wrong, and which rule rejected it. Never the value that was rejected.
+VALIDATION_ERROR_FIELDS = frozenset({"loc", "msg", "type"})
 
 # A violated domain invariant is not automatically a client mistake, so the
 # transport status is decided here rather than being carried by the domain.
@@ -89,12 +93,14 @@ def setup_error_handlers(app: FastAPI) -> None:
     async def handle_request_validation(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        # Only location, message and type are echoed. Pydantic's raw errors also
-        # carry `input` -- the rejected value itself -- which both leaks whatever
-        # the client sent (a card number, a password in the wrong field) into
-        # logs and error bodies, and breaks JSON encoding on types like Decimal.
+        # Pydantic authors this structure, not us, so it is filtered by allowlist:
+        # its raw errors also carry `input` -- the rejected value itself -- which
+        # leaks whatever the client sent (a card number, a password typed into
+        # the wrong field) into logs and error bodies, and breaks JSON encoding
+        # on types like Decimal. New keys in a future pydantic release are
+        # redacted by default rather than published.
         safe_errors = [
-            {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
+            allowlisted(dict(error), allow=VALIDATION_ERROR_FIELDS)
             for error in exc.errors()
         ]
         return problem(

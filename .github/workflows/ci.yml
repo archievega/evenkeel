@@ -182,3 +182,48 @@ jobs:
       - name: compose down
         if: always()
         run: docker compose down -v
+
+  gate:
+    name: quality gate
+    runs-on: ubuntu-latest
+    # `always()` is the whole point. A required check that is *skipped* — because
+    # a dependency failed, or a path filter excluded it — is reported to branch
+    # protection as neutral, and a pull request can merge with half the pipeline
+    # never having run. This job always runs, inspects the others itself, and is
+    # the only status branch protection needs to require. Adding or renaming a
+    # job then never means reconfiguring the repository.
+    if: always()
+    needs: [quality, test, migrations, security, image, smoke]
+    steps:
+      - name: Summarise and decide
+        env:
+          RESULTS: >-
+            quality=${{ needs.quality.result }}
+            test=${{ needs.test.result }}
+            migrations=${{ needs.migrations.result }}
+            security=${{ needs.security.result }}
+            image=${{ needs.image.result }}
+            smoke=${{ needs.smoke.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          {
+            echo "| Gate | Result |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry##*=}"
+            case "$result" in
+              success) icon="✅ passed" ;;
+              skipped) icon="⏭️ skipped"; failed=1 ;;
+              *)       icon="❌ $result"; failed=1 ;;
+            esac
+            echo "| $name | $icon |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::one or more gates did not pass"
+            exit 1
+          fi
