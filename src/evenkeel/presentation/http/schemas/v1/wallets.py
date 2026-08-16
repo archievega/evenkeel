@@ -59,12 +59,22 @@ class MoneyRequest(BaseModel):
 class WalletResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    owner_id: UUID
-    balance: Decimal
-    currency: str
-    status: str
-    version: int
+    id: UUID = Field(description="UUIDv7, so id order is creation order.")
+    owner_id: UUID = Field(description="The authenticated caller. Always yours.")
+    balance: Decimal = Field(
+        description="Decimal string, never a JSON number.", examples=["100.00"]
+    )
+    currency: str = Field(description="ISO 4217.", examples=["EUR"])
+    status: str = Field(
+        description="`open` or `closed`. A closed wallet refuses movements.",
+        examples=["open"],
+    )
+    version: int = Field(
+        description=(
+            "Optimistic concurrency counter, incremented by every movement. "
+            "Exposed because it is the number that explains a 409."
+        )
+    )
 
     @classmethod
     def of(cls, wallet: Wallet) -> "WalletResponse":
@@ -79,13 +89,25 @@ class WalletResponse(BaseModel):
 
 
 class LedgerEntryResponse(BaseModel):
-    id: UUID
-    direction: str
-    amount: Decimal
-    currency: str
-    balance_after: Decimal
-    description: str
-    occurred_at: str
+    id: UUID = Field(description="UUIDv7. Also the pagination sort key.")
+    direction: str = Field(
+        description="`credit` for a deposit, `debit` for a withdrawal.",
+        examples=["credit"],
+    )
+    amount: Decimal = Field(description="Always positive; the sign is the direction.")
+    currency: str = Field(description="ISO 4217.", examples=["EUR"])
+    balance_after: Decimal = Field(
+        description=(
+            "The balance this entry produced. A ledger states what the balance "
+            "*was*, which is what makes it auditable — reconstructing it from "
+            "the current balance and a sum is how discrepancies hide."
+        )
+    )
+    description: str = Field(description="Whatever the caller sent, or a default.")
+    occurred_at: str = Field(
+        description="RFC 3339, always UTC and always offset-aware.",
+        examples=["2026-08-16T12:34:56.789012+00:00"],
+    )
 
     @classmethod
     def of(cls, entry: LedgerEntry) -> "LedgerEntryResponse":
@@ -102,9 +124,15 @@ class LedgerEntryResponse(BaseModel):
 
 class MovementResponse(BaseModel):
     entry_id: UUID = Field(description="The ledger entry this movement wrote.")
-    wallet_id: UUID
-    balance: Decimal = Field(description="Balance after the movement.")
-    currency: str
+    wallet_id: UUID = Field(description="The wallet this movement was applied to.")
+    balance: Decimal = Field(
+        description=(
+            "Balance after this movement. On a replay it is the balance the "
+            "original was written with, not the wallet's balance now."
+        ),
+        examples=["100.00"],
+    )
+    currency: str = Field(description="ISO 4217.", examples=["EUR"])
     replayed: bool = Field(
         description=(
             "True when an idempotency key matched an earlier request. Nothing "
@@ -114,10 +142,22 @@ class MovementResponse(BaseModel):
 
 
 class WalletPageResponse(BaseModel):
-    items: list[WalletResponse]
-    next_cursor: str | None
+    items: list[WalletResponse] = Field(description="Newest first.")
+    next_cursor: str | None = Field(
+        description=(
+            "Pass as `cursor` for the next page. `null` means this was the "
+            "last one. Opaque: it encodes a position, not an offset, so rows "
+            "inserted while you page are neither skipped nor repeated."
+        )
+    )
 
 
 class LedgerPageResponse(BaseModel):
-    items: list[LedgerEntryResponse]
-    next_cursor: str | None
+    items: list[LedgerEntryResponse] = Field(description="Newest first.")
+    next_cursor: str | None = Field(
+        description=(
+            "Pass as `cursor` for the next page. `null` means this was the "
+            "last one. Opaque: it encodes a position, not an offset, so rows "
+            "inserted while you page are neither skipped nor repeated."
+        )
+    )

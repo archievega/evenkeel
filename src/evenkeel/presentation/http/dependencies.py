@@ -46,4 +46,21 @@ async def current_principal(
 
 
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]
-IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key")]
+IdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        description=(
+            "Reuse the same value when retrying a request you are unsure "
+            "completed. The movement is applied once and the retry returns the "
+            "original entry with `replayed: true`; a new value moves money "
+            "again.\n\n"
+            "Scoped per owner, so two clients picking `1` do not collide. "
+            "Reusing one with a different payload is refused with `409` rather "
+            "than confirming an operation that never ran, and a duplicate that "
+            "arrives while the first is still running is refused too — there is "
+            "no result to replay yet."
+        ),
+        examples=["7d1f8e0a-4b3c-4e2a-9f1d-2c5b6a7e8d90"],
+    ),
+]

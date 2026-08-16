@@ -12,9 +12,14 @@
                 "type": "null"
               }
             ],
+            "description": "The failure class, never the driver's message: a connection error carries the DSN, and a readiness probe is the last place to leak one — its output is scraped, logged and alerted on.",
+            "examples": [
+              null
+            ],
             "title": "Error"
           },
           "healthy": {
+            "description": "Whether the last check of it succeeded.",
             "title": "Healthy",
             "type": "boolean"
           }
@@ -28,33 +33,49 @@
       "LedgerEntryResponse": {
         "properties": {
           "amount": {
+            "description": "Always positive; the sign is the direction.",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
           },
           "balance_after": {
+            "description": "The balance this entry produced. A ledger states what the balance *was*, which is what makes it auditable — reconstructing it from the current balance and a sum is how discrepancies hide.",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Balance After",
             "type": "string"
           },
           "currency": {
+            "description": "ISO 4217.",
+            "examples": [
+              "EUR"
+            ],
             "title": "Currency",
             "type": "string"
           },
           "description": {
+            "description": "Whatever the caller sent, or a default.",
             "title": "Description",
             "type": "string"
           },
           "direction": {
+            "description": "`credit` for a deposit, `debit` for a withdrawal.",
+            "examples": [
+              "credit"
+            ],
             "title": "Direction",
             "type": "string"
           },
           "id": {
+            "description": "UUIDv7. Also the pagination sort key.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "occurred_at": {
+            "description": "RFC 3339, always UTC and always offset-aware.",
+            "examples": [
+              "2026-08-16T12:34:56.789012+00:00"
+            ],
             "title": "Occurred At",
             "type": "string"
           }
@@ -74,6 +95,7 @@
       "LedgerPageResponse": {
         "properties": {
           "items": {
+            "description": "Newest first.",
             "items": {
               "$ref": "#/components/schemas/LedgerEntryResponse"
             },
@@ -89,6 +111,7 @@
                 "type": "null"
               }
             ],
+            "description": "Pass as `cursor` for the next page. `null` means this was the last one. Opaque: it encodes a position, not an offset, so rows inserted while you page are neither skipped nor repeated.",
             "title": "Next Cursor"
           }
         },
@@ -102,6 +125,10 @@
       "LivenessResponse": {
         "properties": {
           "status": {
+            "description": "`alive` whenever the process is running. Deliberately checks nothing external: a liveness probe that fails during a database blip restarts every healthy replica and turns a partial outage into a total one. `/ready` is the one that checks dependencies.",
+            "examples": [
+              "alive"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -169,12 +196,19 @@
       "MovementResponse": {
         "properties": {
           "balance": {
-            "description": "Balance after the movement.",
+            "description": "Balance after this movement. On a replay it is the balance the original was written with, not the wallet's balance now.",
+            "examples": [
+              "100.00"
+            ],
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Balance",
             "type": "string"
           },
           "currency": {
+            "description": "ISO 4217.",
+            "examples": [
+              "EUR"
+            ],
             "title": "Currency",
             "type": "string"
           },
@@ -190,6 +224,7 @@
             "type": "boolean"
           },
           "wallet_id": {
+            "description": "The wallet this movement was applied to.",
             "format": "uuid",
             "title": "Wallet Id",
             "type": "string"
@@ -313,10 +348,15 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/DependencyStatus"
             },
+            "description": "One entry per dependency this instance needs to serve.",
             "title": "Dependencies",
             "type": "object"
           },
           "status": {
+            "description": "`ready` or `degraded`. `degraded` is served with a 503.",
+            "examples": [
+              "ready"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -331,14 +371,26 @@
       "VersionResponse": {
         "properties": {
           "built_at": {
+            "description": "Image build timestamp, RFC 3339.",
+            "examples": [
+              "2026-08-16T10:00:00+00:00"
+            ],
             "title": "Built At",
             "type": "string"
           },
           "commit": {
+            "description": "From `APP_COMMIT`, set at build time. The answer to 'which code is actually running', which a version alone does not give.",
+            "examples": [
+              "a798e6b"
+            ],
             "title": "Commit",
             "type": "string"
           },
           "version": {
+            "description": "From `APP_VERSION`, or the package version.",
+            "examples": [
+              "0.1.0"
+            ],
             "title": "Version",
             "type": "string"
           }
@@ -354,6 +406,7 @@
       "WalletPageResponse": {
         "properties": {
           "items": {
+            "description": "Newest first.",
             "items": {
               "$ref": "#/components/schemas/WalletResponse"
             },
@@ -369,6 +422,7 @@
                 "type": "null"
               }
             ],
+            "description": "Pass as `cursor` for the next page. `null` means this was the last one. Opaque: it encodes a position, not an offset, so rows inserted while you page are neither skipped nor repeated.",
             "title": "Next Cursor"
           }
         },
@@ -382,29 +436,44 @@
       "WalletResponse": {
         "properties": {
           "balance": {
+            "description": "Decimal string, never a JSON number.",
+            "examples": [
+              "100.00"
+            ],
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Balance",
             "type": "string"
           },
           "currency": {
+            "description": "ISO 4217.",
+            "examples": [
+              "EUR"
+            ],
             "title": "Currency",
             "type": "string"
           },
           "id": {
+            "description": "UUIDv7, so id order is creation order.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "owner_id": {
+            "description": "The authenticated caller. Always yours.",
             "format": "uuid",
             "title": "Owner Id",
             "type": "string"
           },
           "status": {
+            "description": "`open` or `closed`. A closed wallet refuses movements.",
+            "examples": [
+              "open"
+            ],
             "title": "Status",
             "type": "string"
           },
           "version": {
+            "description": "Optimistic concurrency counter, incremented by every movement. Exposed because it is the number that explains a 409.",
             "title": "Version",
             "type": "integer"
           }
@@ -497,11 +566,13 @@
         "operationId": "list_wallets_v1_wallets_get",
         "parameters": [
           {
+            "description": "Page size. The maximum is 100 — a page nobody can request is a page nobody can use to scan the table.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 20,
+              "description": "Page size. The maximum is 100 — a page nobody can request is a page nobody can use to scan the table.",
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -509,6 +580,7 @@
             }
           },
           {
+            "description": "Opaque, from `next_cursor` on the previous page. Absent means the first page; `next_cursor: null` in a response means the last. Cursors are not offsets: they do not skip or repeat rows when something is inserted while you page.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -521,6 +593,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Opaque, from `next_cursor` on the previous page. Absent means the first page; `next_cursor: null` in a response means the last. Cursors are not offsets: they do not skip or repeat rows when something is inserted while you page.",
               "title": "Cursor"
             }
           }
@@ -633,10 +706,12 @@
         "operationId": "get_wallet_v1_wallets__wallet_id__get",
         "parameters": [
           {
+            "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
             "in": "path",
             "name": "wallet_id",
             "required": true,
             "schema": {
+              "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
               "format": "uuid",
               "title": "Wallet Id",
               "type": "string"
@@ -705,16 +780,19 @@
         "operationId": "deposit_v1_wallets__wallet_id__deposits_post",
         "parameters": [
           {
+            "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
             "in": "path",
             "name": "wallet_id",
             "required": true,
             "schema": {
+              "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
               "format": "uuid",
               "title": "Wallet Id",
               "type": "string"
             }
           },
           {
+            "description": "Reuse the same value when retrying a request you are unsure completed. The movement is applied once and the retry returns the original entry with `replayed: true`; a new value moves money again.\n\nScoped per owner, so two clients picking `1` do not collide. Reusing one with a different payload is refused with `409` rather than confirming an operation that never ran, and a duplicate that arrives while the first is still running is refused too — there is no result to replay yet.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -726,6 +804,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Reuse the same value when retrying a request you are unsure completed. The movement is applied once and the retry returns the original entry with `replayed: true`; a new value moves money again.\n\nScoped per owner, so two clients picking `1` do not collide. Reusing one with a different payload is refused with `409` rather than confirming an operation that never ran, and a duplicate that arrives while the first is still running is refused too — there is no result to replay yet.",
+              "examples": [
+                "7d1f8e0a-4b3c-4e2a-9f1d-2c5b6a7e8d90"
               ],
               "title": "Idempotency-Key"
             }
@@ -847,21 +929,25 @@
         "operationId": "list_entries_v1_wallets__wallet_id__entries_get",
         "parameters": [
           {
+            "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
             "in": "path",
             "name": "wallet_id",
             "required": true,
             "schema": {
+              "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
               "format": "uuid",
               "title": "Wallet Id",
               "type": "string"
             }
           },
           {
+            "description": "Page size. The maximum is 100 — a page nobody can request is a page nobody can use to scan the table.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 20,
+              "description": "Page size. The maximum is 100 — a page nobody can request is a page nobody can use to scan the table.",
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -869,6 +955,7 @@
             }
           },
           {
+            "description": "Opaque, from `next_cursor` on the previous page. Absent means the first page; `next_cursor: null` in a response means the last. Cursors are not offsets: they do not skip or repeat rows when something is inserted while you page.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -881,6 +968,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Opaque, from `next_cursor` on the previous page. Absent means the first page; `next_cursor: null` in a response means the last. Cursors are not offsets: they do not skip or repeat rows when something is inserted while you page.",
               "title": "Cursor"
             }
           }
@@ -947,16 +1035,19 @@
         "operationId": "withdraw_v1_wallets__wallet_id__withdrawals_post",
         "parameters": [
           {
+            "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
             "in": "path",
             "name": "wallet_id",
             "required": true,
             "schema": {
+              "description": "A wallet belonging to the authenticated owner. One that belongs to somebody else is reported as absent, so this cannot be used to discover which ids exist.",
               "format": "uuid",
               "title": "Wallet Id",
               "type": "string"
             }
           },
           {
+            "description": "Reuse the same value when retrying a request you are unsure completed. The movement is applied once and the retry returns the original entry with `replayed: true`; a new value moves money again.\n\nScoped per owner, so two clients picking `1` do not collide. Reusing one with a different payload is refused with `409` rather than confirming an operation that never ran, and a duplicate that arrives while the first is still running is refused too — there is no result to replay yet.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": false,
@@ -968,6 +1059,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Reuse the same value when retrying a request you are unsure completed. The movement is applied once and the retry returns the original entry with `replayed: true`; a new value moves money again.\n\nScoped per owner, so two clients picking `1` do not collide. Reusing one with a different payload is refused with `409` rather than confirming an operation that never ran, and a duplicate that arrives while the first is still running is refused too — there is no result to replay yet.",
+              "examples": [
+                "7d1f8e0a-4b3c-4e2a-9f1d-2c5b6a7e8d90"
               ],
               "title": "Idempotency-Key"
             }

@@ -128,3 +128,53 @@ def test_the_request_bodies_carry_examples(spec: dict[str, Any]) -> None:
             without.append(f"{method.upper()} {path}")
 
     assert without == []
+
+
+def test_every_parameter_is_explained(spec: dict[str, Any]) -> None:
+    """Ten of these shipped undescribed, including `Idempotency-Key` — the
+    header the retry story depends on — and the pagination cursor, which is
+    useless to somebody who has not been told where to get one."""
+    bare = [
+        f"{method.upper()} {path} → {parameter['name']}"
+        for path, method, operation in operations(spec)
+        for parameter in operation.get("parameters", [])
+        if not parameter.get("description")
+    ]
+
+    assert not bare, bare
+
+
+def test_every_response_field_is_explained(spec: dict[str, Any]) -> None:
+    """`version: int` on a wallet means nothing until something says it is the
+    optimistic-concurrency counter that explains a 409."""
+    bare = [
+        f"{name}.{field}"
+        for name, schema in spec["components"]["schemas"].items()
+        for field, definition in schema.get("properties", {}).items()
+        if not definition.get("description")
+    ]
+
+    assert not bare, bare
+
+
+def test_every_versioned_operation_requires_a_credential(spec: dict[str, Any]) -> None:
+    unprotected = [
+        f"{method.upper()} {path}"
+        for path, method, operation in operations(spec)
+        if path.startswith("/v1/") and not operation.get("security")
+    ]
+
+    assert not unprotected, unprotected
+
+
+def test_the_security_scheme_says_where_a_token_comes_from(
+    spec: dict[str, Any],
+) -> None:
+    """The first question anybody has, and the published reference is where they
+    ask it. Rendered without this, the auth panel reads "no authentication
+    selected" and leaves the reader guessing what a token even is here."""
+    schemes = spec["components"]["securitySchemes"].values()
+
+    assert schemes
+    for scheme in schemes:
+        assert len(scheme.get("description", "")) > 80, scheme

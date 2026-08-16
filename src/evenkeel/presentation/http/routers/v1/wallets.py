@@ -1,8 +1,9 @@
 from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from evenkeel.application.interactors.wallets import (
     DepositCommand,
@@ -46,6 +47,17 @@ from evenkeel.presentation.http.schemas.v1.wallets import (
 # indistinguishable from one that is intentionally public -- which is how an
 # unauthenticated password-reset endpoint ships. A public route here has to say
 # so explicitly.
+WalletIdParam = Annotated[
+    UUID,
+    Path(
+        description=(
+            "A wallet belonging to the authenticated owner. One that belongs to "
+            "somebody else is reported as absent, so this cannot be used to "
+            "discover which ids exist."
+        ),
+    ),
+]
+
 router = APIRouter(route_class=DishkaRoute, dependencies=[Depends(current_principal)])
 
 
@@ -92,8 +104,20 @@ async def open_wallet(
 async def list_wallets(
     principal: CurrentPrincipal,
     interactor: FromDishka[ListWalletsInteractor],
-    limit: int = Query(default=20, ge=1, le=100),
-    cursor: str | None = Query(default=None),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Page size. The maximum is 100 — a page nobody can request "
+        "is a page nobody can use to scan the table.",
+    ),
+    cursor: str | None = Query(
+        default=None,
+        description="Opaque, from `next_cursor` on the previous page. Absent "
+        "means the first page; `next_cursor: null` in a response means the "
+        "last. Cursors are not offsets: they do not skip or repeat rows when "
+        "something is inserted while you page.",
+    ),
 ) -> WalletPageResponse:
     """Cursor-paginated, newest first.
 
@@ -117,7 +141,7 @@ async def list_wallets(
     responses=read_responses(),
 )
 async def get_wallet(
-    wallet_id: UUID,
+    wallet_id: WalletIdParam,
     principal: CurrentPrincipal,
     interactor: FromDishka[GetWalletInteractor],
 ) -> WalletResponse:
@@ -135,7 +159,7 @@ async def get_wallet(
     responses=movement_responses(),
 )
 async def deposit(
-    wallet_id: UUID,
+    wallet_id: WalletIdParam,
     payload: MoneyRequest,
     principal: CurrentPrincipal,
     interactor: FromDishka[DepositToWalletInteractor],
@@ -169,7 +193,7 @@ async def deposit(
     responses=movement_responses(),
 )
 async def withdraw(
-    wallet_id: UUID,
+    wallet_id: WalletIdParam,
     payload: MoneyRequest,
     principal: CurrentPrincipal,
     interactor: FromDishka[WithdrawFromWalletInteractor],
@@ -201,11 +225,23 @@ async def withdraw(
     responses=read_responses(),
 )
 async def list_entries(
-    wallet_id: UUID,
+    wallet_id: WalletIdParam,
     principal: CurrentPrincipal,
     interactor: FromDishka[ListLedgerEntriesInteractor],
-    limit: int = Query(default=20, ge=1, le=100),
-    cursor: str | None = Query(default=None),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Page size. The maximum is 100 — a page nobody can request "
+        "is a page nobody can use to scan the table.",
+    ),
+    cursor: str | None = Query(
+        default=None,
+        description="Opaque, from `next_cursor` on the previous page. Absent "
+        "means the first page; `next_cursor: null` in a response means the "
+        "last. Cursors are not offsets: they do not skip or repeat rows when "
+        "something is inserted while you page.",
+    ),
 ) -> LedgerPageResponse:
     """Append-only history for one wallet, newest first.
 
