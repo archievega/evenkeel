@@ -88,8 +88,8 @@ class RiskAssessmentPort(ABC):
     """Ask an external provider whether a movement may proceed.
 
     Implementations must not raise for anything they can foresee: a timeout, a
-    refused connection, a 500, a malformed body, a full bulkhead and an open
-    circuit are all `UNAVAILABLE`. Raising leaks the transport into the caller
+    refused connection, a 500, a malformed body and a full bulkhead are all
+    `UNAVAILABLE`. Raising leaks the transport into the caller
     and, worse, makes "the provider is having a bad day" indistinguishable from
     "this code has a bug".
     """

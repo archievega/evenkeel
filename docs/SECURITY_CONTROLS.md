@@ -67,7 +67,7 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 | Dependencies are audited and statically analysed | CI `security` job | `pip-audit`, `bandit` | [1395](https://cwe.mitre.org/data/definitions/1395.html) |
 | Layer boundaries cannot be crossed | [`.importlinter`](../.importlinter) | CI `lint-imports`, 3 contracts | — |
 | An outbound call cannot hang: every attempt is bounded, and the whole call including retries is bounded by a budget | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py) | `test_a_timeout_is_a_failure_value_not_an_exception`, `test_the_budget_bounds_the_worst_case` | [1088](https://cwe.mitre.org/data/definitions/1088.html) |
-| A slow or dead dependency is shed rather than accumulated: concurrency is capped and the circuit opens | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py), [`http/circuit.py`](../src/evenkeel/infrastructure/adapters/http/circuit.py) | `test_a_full_bulkhead_refuses_without_calling_the_provider`, `test_the_circuit_opens_and_then_costs_nothing`, `tools/load/README.md` runs B–D | [770](https://cwe.mitre.org/data/definitions/770.html) |
+| A slow or dead dependency is shed rather than accumulated: concurrent calls are capped and excess is refused immediately, not queued | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py) | `test_a_full_bulkhead_refuses_without_calling_the_provider`, `tools/load/README.md` runs B–F | [770](https://cwe.mitre.org/data/definitions/770.html) |
 | An outbound response cannot exhaust memory: the body is read to a cap, not to completion | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py) | `test_an_oversized_body_is_refused_rather_than_read` | [400](https://cwe.mitre.org/data/definitions/400.html) |
 | A provider response this code cannot parse is never read as approval | [`http/risk.py`](../src/evenkeel/infrastructure/adapters/http/risk.py) | `test_an_unrecognised_decision_is_not_permission` | [754](https://cwe.mitre.org/data/definitions/754.html) |
 | The outbound destination comes from configuration and is never taken from a request; proxy environment variables are ignored unless asked for | [`setup/config.py`](../src/evenkeel/setup/config.py), [`http/risk.py`](../src/evenkeel/infrastructure/adapters/http/risk.py) | `trust_env=False` by default; `risk.base_url` is not reachable from any handler | [918](https://cwe.mitre.org/data/definitions/918.html) |
@@ -102,9 +102,9 @@ Closed by the outbound slice (2026-08-16):
 
 - `MetricsPort.observe_external_call` had one no-op implementation and no
   caller: a metric that could not be seen. A load run made this concrete —
-  `bulkhead_full`, `timeout` and `circuit_open` all reach the client as the same
-  503, and two runs were interpreted wrongly before the Prometheus adapter
-  existed. See `tools/load/README.md`.
+  `bulkhead_full`, `timeout` and `budget_exhausted` all reach the client as the
+  same 503, and two runs were interpreted wrongly before the Prometheus adapter
+  existed. It is also what retired the circuit breaker. See `tools/load/README.md`.
 - Four Redis clients were constructed by DI providers that `return`ed rather
   than `yield`ed, so nothing closed them at shutdown.
 - The movement rate limit was a literal in application code with no way to reach

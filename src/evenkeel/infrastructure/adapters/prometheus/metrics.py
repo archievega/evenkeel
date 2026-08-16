@@ -1,7 +1,7 @@
 """The real `MetricsPort`, behind the `metrics` extra.
 
 Written when a load run turned out to be unreadable without it: the bulkhead
-shedding a request, the provider timing out, and the circuit being open all
+shedding a request, the provider timing out, and a retry budget running out all
 reach the client as the same 503, and no amount of staring at the client-side
 summary can tell them apart. `observe_external_call` had been an abstract method
 with one no-op implementation and no caller — a metric nobody could see.
@@ -77,9 +77,10 @@ class PrometheusMetrics(MetricsPort):
             registry=self.registry,
         )
         # The one this file was written for. `outcome` separates `success`,
-        # `timeout`, `server_error`, `bulkhead_full`, `circuit_open` and
-        # `budget_exhausted` — the distinction the client cannot see, and the
-        # only way to know which guard fired.
+        # `timeout`, `server_error`, `bulkhead_full` and `budget_exhausted` —
+        # the distinction the client cannot see, and the only way to know which
+        # guard fired. It is also what retired the circuit breaker: with these
+        # counters the breaker's cost was visible, and it was not worth paying.
         self._external_calls = Counter(
             "evenkeel_external_call_total",
             "Calls to a dependency, by outcome.",

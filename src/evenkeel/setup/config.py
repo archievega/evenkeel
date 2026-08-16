@@ -170,8 +170,6 @@ class OutboundHttpConfig(BaseModel):
     # Zero means refuse immediately rather than queue. Queueing for a slot is
     # the failure mode a bulkhead exists to prevent.
     bulkhead_wait_ms: int = 0
-    circuit_failure_threshold: int = 5
-    circuit_reset_ms: int = 10_000
     connection_limit: int = 64
     dns_cache_seconds: int = 30
     # Off by default: HTTP_PROXY in the environment silently rerouting outbound

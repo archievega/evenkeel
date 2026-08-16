@@ -6,26 +6,30 @@ and a framework would hide exactly the ones a reviewer should be arguing with.
 
 The guarantees, in the order they apply to a call:
 
-1. **A circuit breaker**, so a dead provider costs one probe per cooldown
-   instead of one timeout per request.
-2. **A bulkhead**, so a *slow* provider — the case a breaker never sees, because
-   nothing is failing — cannot accumulate unbounded in-flight calls, each
-   holding a task and the database connection of the request it sits inside.
-3. **A per-attempt timeout and an overall budget**, so the worst case is a
+1. **A bulkhead**, so a slow or failing provider cannot accumulate unbounded
+   in-flight calls, and a caller who cannot be served is refused immediately
+   rather than queued behind one who also will not be.
+2. **A per-attempt timeout and an overall budget**, so the worst case is a
    number someone chose rather than the sum of whatever the retries felt like.
-4. **Retries only where they are safe**, with full jitter, honouring
+3. **Retries only where they are safe**, with full jitter, honouring
    `Retry-After`.
-5. **A response size cap**, so a broken or hostile upstream cannot spend this
+4. **A response size cap**, so a broken or hostile upstream cannot spend this
    process's memory.
-6. **Failures as values.** Nothing here raises; the caller gets a `JsonResponse`
+5. **Failures as values.** Nothing here raises; the caller gets a `JsonResponse`
    with a `failure` it can branch on.
+
+There is no circuit breaker. There was one, in two implementations, and it was
+removed after being measured — see `docs/adr/0006-outbound-calls.md`. The short
+version: against a provider failing 55% of calls it cut successful movements
+from 1950 to 1, and against a dead one it saved 55ms per refusal that the
+bulkhead was already making cheap.
 """
 
 import asyncio
 import json
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -33,7 +37,6 @@ import aiohttp
 import structlog
 
 from evenkeel.application.ports import BulkheadPolicy, BulkheadPort, MetricsPort
-from evenkeel.infrastructure.adapters.http.circuit import CircuitBreaker, CircuitPolicy
 from evenkeel.logging import get_logger
 
 log = get_logger(__name__)
@@ -50,7 +53,6 @@ class Failure(StrEnum):
     OVERSIZED = "oversized"
     MALFORMED = "malformed"
     BULKHEAD_FULL = "bulkhead_full"
-    CIRCUIT_OPEN = "circuit_open"
     BUDGET_EXHAUSTED = "budget_exhausted"
 
 
@@ -82,7 +84,6 @@ class TransportPolicy:
     bulkhead_limit: int = 32
     bulkhead_wait_ms: int = 0
     bulkhead_lease_ttl_ms: int = 5_000
-    circuit: CircuitPolicy = field(default_factory=CircuitPolicy)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +140,6 @@ class JsonHttpTransport:
         # Holds the API key. Never logged, never included in an error, never
         # echoed into a metric label.
         self._default_headers = dict(default_headers or {})
-        self._breaker = CircuitBreaker(policy.circuit)
 
     async def post_json(
         self, path: str, payload: dict[str, Any], *, operation: str
@@ -155,12 +155,6 @@ class JsonHttpTransport:
         return response
 
     async def _guarded_post(self, path: str, payload: dict[str, Any]) -> JsonResponse:
-        if not self._breaker.allows():
-            # No call, no wait. This is the whole point of the breaker: during
-            # an outage the caller finds out in microseconds instead of paying
-            # the timeout to learn what the last hundred callers already know.
-            return JsonResponse(status=None, body=None, failure=Failure.CIRCUIT_OPEN)
-
         lease = self._bulkhead.acquire(
             BulkheadPolicy(
                 name=f"outbound:{self._policy.service}",
@@ -171,10 +165,10 @@ class JsonHttpTransport:
         )
         async with lease:
             if not lease.acquired:
-                # Not recorded as a provider failure. The provider said nothing;
-                # this is our own back-pressure, and feeding it to the breaker
-                # would trip the circuit on our own success — a traffic spike
-                # would look identical to an outage.
+                # Immediate, because `wait_timeout_ms` is 0. Queueing for a slot
+                # is the failure mode the bulkhead exists to prevent: a caller
+                # who waits behind a caller who is timing out has simply moved
+                # the queue one layer up.
                 return JsonResponse(status=None, body=None, failure=Failure.BULKHEAD_FULL)
             # The lease is held across every attempt, not per attempt. The limit
             # is on how many calls are *in flight*, and a retry is still the
@@ -196,7 +190,6 @@ class JsonHttpTransport:
             result, retry_after_ms = await self._single_attempt(
                 url, payload, remaining_ms
             )
-            self._record(result)
 
             if result.failure not in _RETRYABLE or attempt == self._policy.max_attempts:
                 return result
@@ -288,16 +281,6 @@ class JsonHttpTransport:
             # systems' logs.
             headers[CORRELATION_HEADER] = correlation_id
         return headers
-
-    def _record(self, result: JsonResponse) -> None:
-        if result.failure in _RETRYABLE:
-            self._breaker.record_failure()
-            return
-        # A 400 or a malformed body means the provider is alive and this code is
-        # wrong. Tripping the circuit on it would hide our own bug behind an
-        # outage-shaped symptom, and would keep the circuit open long after the
-        # provider stopped being the problem.
-        self._breaker.record_success()
 
     def _backoff_ms(self, attempt: int, retry_after_ms: float | None) -> float:
         if retry_after_ms is not None:

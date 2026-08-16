@@ -214,7 +214,6 @@ class InfrastructureProvider(Provider):
             yield AllowAllRiskAssessment()
             return
 
-        from evenkeel.infrastructure.adapters.http.circuit import CircuitPolicy
         from evenkeel.infrastructure.adapters.http.risk import (
             open_http_risk_assessment,
         )
@@ -240,10 +239,6 @@ class InfrastructureProvider(Provider):
                 max_response_bytes=http.max_response_bytes,
                 bulkhead_limit=http.bulkhead_limit,
                 bulkhead_wait_ms=http.bulkhead_wait_ms,
-                circuit=CircuitPolicy(
-                    failure_threshold=http.circuit_failure_threshold,
-                    reset_timeout_ms=http.circuit_reset_ms,
-                ),
             ),
             session_policy=SessionPolicy(
                 connection_limit=http.connection_limit,

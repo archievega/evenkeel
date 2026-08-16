@@ -24,7 +24,6 @@ from evenkeel.application.ports.risk import RiskCheck, RiskOutcome  # noqa: E402
 from evenkeel.domain.entities.ledger_entry import LedgerDirection  # noqa: E402
 from evenkeel.domain.value_objects.ids import OwnerId, WalletId  # noqa: E402
 from evenkeel.domain.value_objects.money import CurrencyCode, Money  # noqa: E402
-from evenkeel.infrastructure.adapters.http.circuit import CircuitPolicy  # noqa: E402
 from evenkeel.infrastructure.adapters.http.risk import HttpRiskAssessment  # noqa: E402
 from evenkeel.infrastructure.adapters.http.transport import (  # noqa: E402
     Failure,
@@ -230,29 +229,6 @@ async def test_a_full_bulkhead_refuses_without_calling_the_provider(
 
         assert response.failure is Failure.BULKHEAD_FULL
         assert handler.calls == 0
-
-
-async def test_the_circuit_opens_and_then_costs_nothing(
-    session: aiohttp.ClientSession,
-) -> None:
-    async with serve(answering({"error": "down"}, status=500)) as (base_url, handler):
-        client = transport(
-            session,
-            base_url,
-            max_attempts=1,
-            circuit=CircuitPolicy(failure_threshold=2, reset_timeout_ms=60_000),
-        )
-
-        assert (await client.post_json(PATH, {}, operation="assess")).failure is (
-            Failure.SERVER_ERROR
-        )
-        assert (await client.post_json(PATH, {}, operation="assess")).failure is (
-            Failure.SERVER_ERROR
-        )
-        after_open = await client.post_json(PATH, {}, operation="assess")
-
-        assert after_open.failure is Failure.CIRCUIT_OPEN
-        assert handler.calls == 2, "the open circuit must not reach the provider"
 
 
 async def test_the_budget_bounds_the_worst_case(

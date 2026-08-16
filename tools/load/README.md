@@ -30,7 +30,7 @@ curl -s localhost:8000/metrics | grep evenkeel_external_call_total
 default, and the first attempt at this profile was 88% `429` and looked, at a
 glance, like a load result. The stub provider's behaviour is a set of dials —
 `RISK_LATENCY_MS`, `RISK_FAILURE_RATE`, `RISK_REFUSE_RATE` — and the service's
-guards are `RISK_BULKHEAD_LIMIT`, `RISK_TIMEOUT_MS`, `RISK_CIRCUIT_THRESHOLD`.
+guards are `RISK_BULKHEAD_LIMIT` and `RISK_TIMEOUT_MS`.
 
 The client profile is an **open model** (`constant-arrival-rate`): 200 write
 requests and 50 read requests per second arrive whether or not the previous ones
@@ -47,21 +47,21 @@ writes always do.
 | | provider | guards | movements applied | write p50 | write p95 | read p95 |
 | --- | --- | --- | --- | --- | --- | --- |
 | **0** | none (`allow-all`) | — | 4001 | 4.5ms | 7.5ms | 2.6ms |
-| **A** | healthy, 5ms | bulkhead 32, breaker 5 | 4001 | 11.1ms | 17.5ms | 3.0ms |
-| **B** | slow, 700ms | bulkhead 32, breaker 5 | 0 | <1ms | <1ms | 2.6ms |
-| **B2** | slow, 700ms | bulkhead 32, no breaker | 88 | 0.7ms | 1.43s | 3.2ms |
+| **A** | healthy, 5ms | bulkhead 32 | 4001 | 11.1ms | 17.5ms | 3.0ms |
+| **B2** | slow, 700ms | bulkhead 32 | 88 | 0.7ms | 1.43s | 3.2ms |
 | **C** | slow, 700ms | none | 109 | 449ms | 1.43s | 5.2ms |
-| **D** | stopped | bulkhead 32, breaker 5 | 0 | 0.6ms | 1.0ms | 2.2ms |
+| **D** | stopped | bulkhead 32 | — | 32.8ms | 56.5ms | 4.3ms |
+| **F** | failing 55% | bulkhead 32 | 1950 | 22.4ms | 63.4ms | — |
 
 Server-side, from `/metrics` — the reason that endpoint got built:
 
-| | `success` | `timeout` | `bulkhead_full` | `circuit_open` | `connection` |
+| | `success` | `timeout` | `server_error` | `bulkhead_full` | `connection` |
 | --- | --- | --- | --- | --- | --- |
 | A | 4041 | | | | |
-| B | 10 | 9 | 0 | 4022 | |
-| B2 | 213 | 329 | 3498 | | |
+| B2 | 213 | 329 | | 3498 | |
 | C | 255 | 3786 | | | |
-| D | | | | 4035 | 5 |
+| D | | | | | 4040 |
+| F | 2785 | | 1256 | | |
 
 ### The outbound hop costs 10ms, and it is the whole cost
 
@@ -69,15 +69,17 @@ Run 0 against run A: write p95 goes 7.5ms → 17.5ms with a provider answering i
 5ms. Nothing else moves. Throughput is identical because the offered rate is
 fixed and neither run is saturated.
 
-### With the guards, a refusal is 1400x cheaper than without
+### With the bulkhead, a refusal is ~600x cheaper than without
 
-Run D is the clean case: the provider is stopped, five requests fail to connect,
-the circuit opens, and the remaining 4035 are refused in **1ms at p95**. Run C
-is the same situation without guards, and every refused write pays the full
-retry budget — **1.43s at p95** — to be told exactly the same thing.
+Run B2 against run C, same slow provider: with the bulkhead a shed write is
+refused in **0.7ms at the median**, against **449ms** with no bulkhead, where
+every caller pays the provider's latency before being told no. The p95 is the
+same 1.43s in both, because that is the retry budget spent by the calls that did
+get a slot — the bulkhead changes what happens to the majority, not to the few
+it lets through.
 
-That is the argument for both guards in one number. It is not about protecting
-the database; it is about not making a client wait a second and a half for a no.
+It is not about protecting the database; it is about not making a client wait
+for a no.
 
 ### The read endpoints were never in danger — and not for the reason claimed
 
@@ -93,29 +95,50 @@ design and it is worth stating — but it was an accident of ordering, not a
 decision, until this run made it visible. Move the check after the wallet is
 loaded and run C again: the guarantee disappears.
 
-### The circuit breaker overreacts to partial degradation
+### The circuit breaker was deleted, and this is the run that did it
 
-The finding that changed an opinion. In run B the provider was **alive** — it
-answered 213 of 542 calls in run B2, under identical conditions. With the
-breaker enabled, run B applied **zero** movements: nine timeouts in a row were
-enough to open the circuit, and it stayed effectively open for the rest of the
-run, refusing 4022 requests on behalf of a dependency that was working 39% of
-the time.
+The most useful thing these runs produced. The breaker started as a
+consecutive-failure counter; a load run showed it opening on a provider that was
+still working, so it was rebuilt as a sliding-window failure rate with a minimum
+call count — the textbook fix, and better reasoning in every respect. Then the
+same workload was run against all three options.
 
-Consecutive-failure thresholds are cheap, fast to react, and blunt. A
-degraded-but-useful dependency gets treated exactly like a dead one. The
-alternative — a failure *rate* over a rolling window, with a minimum request
-volume before the rate is trusted — costs more state and reacts more slowly, and
-would have kept those 213 successful calls.
+Provider failing 55% of attempts — degraded, but useful:
 
-`CircuitPolicy.failure_threshold` is configuration, so raising it is a deploy
-rather than a release. That is the mitigation, not a fix, and it is written down
-in `docs/adr/0006-outbound-calls.md` as an accepted limitation rather than
-quietly left for someone to find during an incident.
+| | movements applied |
+| --- | --- |
+| consecutive-failure breaker (5 in a row) | 547 |
+| sliding-window rate (50% over 10s, min 20 calls) | **1** |
+| no breaker, bulkhead only | **1950** |
+
+The repaired version is worse than the broken one, and both are far worse than
+nothing. A rate breaker cannot be fooled by the order failures arrive in, which
+makes it *more* decisive about a dependency whose failure rate sits near the
+threshold — precisely where being decisive is wrong. Both versions behaved
+exactly as designed. The design was the problem.
+
+The case for the breaker is a provider that is fully down:
+
+| | write p95 | calls sent to the dead provider |
+| --- | --- | --- |
+| with breaker | 1.0ms | 5 |
+| bulkhead only | 56.5ms | 4040 |
+
+Real, and worth about 55ms per refusal — because the bulkhead already refuses
+immediately rather than queueing, which is the property that actually matters.
+Set against 1950 lost movements in the degraded case, plus a state machine whose
+probe permits, window resets and cancelled-probe handling produced three bugs
+while being written, it does not pay for itself. Removed; the reasoning is
+[ADR 6](../../docs/adr/0006-outbound-calls.md).
+
+Worth being precise about what this is not: it is not "circuit breakers are
+bad". It is that this dependency is slow-or-down rather than harmed-by-traffic,
+and a guard should be justified by the failure it prevents rather than by being
+a well-known pattern.
 
 ### Two 503s that mean opposite things look identical from outside
 
-`bulkhead_full`, `timeout` and `circuit_open` all reach the client as
+`bulkhead_full`, `timeout` and `budget_exhausted` all reach the client as
 `503 DEPENDENCY_UNAVAILABLE`, which is correct — the distinction is internal —
 and it makes a client-side load summary unreadable. The first two runs of this
 profile were interpreted wrongly for exactly that reason.

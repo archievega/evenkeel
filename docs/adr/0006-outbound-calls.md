@@ -34,33 +34,78 @@ which is the default and is why `docker compose up` needs no vendor account, and
 ### Unavailable is an outcome, not an exception
 
 `RiskOutcome` has three values: `ALLOWED`, `REFUSED`, `UNAVAILABLE`. Timeouts,
-refused connections, 500s, malformed bodies, a full bulkhead and an open circuit
-all map to `UNAVAILABLE`. Nothing in the adapter raises.
+refused connections, 500s, malformed bodies and a full bulkhead all map to
+`UNAVAILABLE`. Nothing in the adapter raises.
 
 The distinction between `REFUSED` and `UNAVAILABLE` is load-bearing. They mean
 opposite things — one is the provider working, the other is the provider
 missing — and an adapter that reports a timeout as a refusal turns every network
 incident into a fraud spike on the dashboards downstream.
 
-### Five guards, each covering what the others cannot
+### Four guards, each covering what the others cannot
 
 In the order they apply:
 
-1. **Circuit breaker.** Five consecutive failures open it for ten seconds; one
-   probe is then allowed through. A dead provider costs one probe per cooldown
-   instead of one timeout per request.
-2. **Bulkhead.** Concurrent occupancy is capped, refusal is immediate rather
-   than queued. This is the one that covers a *slow* provider, which the breaker
-   never sees because nothing is failing.
-3. **Per-attempt timeout and an overall budget.** `budget_ms` is the number to
+1. **Bulkhead.** Concurrent occupancy is capped and refusal is immediate rather
+   than queued — `wait_timeout_ms` is 0, because a caller who waits for a slot
+   behind a caller who is timing out has simply moved the queue one layer up.
+2. **Per-attempt timeout and an overall budget.** `budget_ms` is the number to
    quote as the worst case; without it the worst case is
    `max_attempts × timeout + backoff`, which nobody chose.
-4. **Retries, only where they are safe**, with full jitter, honouring
+3. **Retries, only where they are safe**, with full jitter, honouring
    `Retry-After`. A 400 and a malformed 200 are not retried: they will be the
    same next time, and retrying doubles the load on a provider that is working
    to fix a bug that is ours.
-5. **A response size cap**, read incrementally, so a broken or hostile upstream
+4. **A response size cap**, read incrementally, so a broken or hostile upstream
    cannot spend this process's memory.
+
+### There is no circuit breaker, and that is the decision
+
+It was built, twice, and removed after being measured. The full runs are in
+`tools/load/README.md`; this is what they showed.
+
+Against a provider failing 55% of attempts — degraded, but still doing useful
+work — at 200 requests per second for 20 seconds:
+
+| | movements applied |
+| --- | --- |
+| consecutive-failure breaker (5 in a row) | 547 |
+| sliding-window failure rate (50% over 10s, min 20 calls) | **1** |
+| no breaker, bulkhead only | **1950** |
+
+The second row is the fix for the first row's known flaw, and it is worse. That
+is the finding. A rate breaker is strictly better reasoning — it cannot be fooled
+by the order failures arrive in — and it makes the mechanism *more* decisive
+about a dependency whose failure rate sits near the threshold, which is exactly
+where being decisive is wrong. Both versions are working as designed; the design
+is the problem.
+
+Against a provider that is fully stopped:
+
+| | write p95 | calls sent to the dead provider |
+| --- | --- | --- |
+| with breaker | 1.0ms | 5 |
+| bulkhead only | 56.5ms | 4040 |
+
+This is the breaker's real case, and it is worth about 55 milliseconds per
+refusal. The bulkhead already delivers the property that matters — a refusal
+costs nothing and in-flight calls are bounded — because it refuses immediately
+instead of queueing. What the breaker adds on top is that it stops sending
+traffic at a service that is down, which is genuine but modest: the bulkhead
+caps that traffic at 32 concurrent regardless.
+
+So: a mechanism that helps by 55ms in the rare case, costs 1950x throughput in
+the common one, and is by some distance the most intricate code in this slice —
+a state machine with probe permits, a sliding window, and edge cases around
+cancelled probes and window resets, three of which were bugs found while writing
+it. Removed.
+
+**What would bring it back.** A dependency where calling a failing instance is
+itself harmful — one that charges per request, or whose recovery is prevented by
+the load — rather than merely slow. That is a real category, and the argument
+for a breaker there is about protecting *them*, not us. It is not this
+dependency, and a template should not ship a guard for a situation it does not
+have.
 
 ### The call happens before the lock and before the transaction
 
@@ -89,23 +134,19 @@ refused them turns every refusal into tuning feedback for whoever is probing.
 
 Measured, not assumed — the full run is in `tools/load/README.md`.
 
-**The guards are worth roughly 1400x on the cost of a refusal.** Provider
-stopped, 200 requests per second: with the breaker, a refused write costs 1ms at
-p95. Without either guard, the same refusal costs 1.43s, because every request
-pays the full retry budget to be told the same thing.
+**The bulkhead is worth roughly 20x on the cost of a refusal.** Provider slow,
+200 requests per second: a shed write is refused in under a millisecond at the
+median, against 449ms with no bulkhead, where every caller pays the provider's
+latency before being told no.
 
-**The breaker overreacts to partial degradation, and this is accepted rather
-than solved.** In a run where the provider answered 39% of calls, the breaker
-opened on nine consecutive timeouts and then refused everything for the rest of
-the run — zero movements applied, against 88 with the breaker off. A
-consecutive-failure threshold cannot tell "degraded" from "dead". The
-alternative is a failure rate over a rolling window with a minimum-volume gate;
-it costs more state, reacts more slowly, and is the right upgrade if this
-dependency ever matters more than the template does. Until then the threshold is
-configuration, so raising it is a deploy rather than a release.
+**A guard is only worth what it is measured to be worth.** The circuit breaker
+was in the first version of this slice, was rebuilt when the first version's
+flaw showed up in a load run, and was then deleted when the rebuild measured
+worse than having nothing. Two implementations, both correct, both retired by
+the same numbers. See above.
 
 **A 503 does not say which guard fired, and that is correct but expensive.**
-`bulkhead_full`, `timeout` and `circuit_open` are indistinguishable from
+`bulkhead_full`, `timeout` and `budget_exhausted` are indistinguishable from
 outside. Reading a load run without server-side metrics is guesswork; the
 Prometheus adapter exists because two runs were interpreted wrongly before it
 did.

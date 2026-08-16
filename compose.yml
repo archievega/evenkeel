@@ -23,7 +23,6 @@ services:
       APP__RISK__BASE_URL: ${RISK_BASE_URL:-http://risk:9800}
       APP__RISK__HTTP__BULKHEAD_LIMIT: ${RISK_BULKHEAD_LIMIT:-32}
       APP__RISK__HTTP__TOTAL_TIMEOUT_MS: ${RISK_TIMEOUT_MS:-800}
-      APP__RISK__HTTP__CIRCUIT_FAILURE_THRESHOLD: ${RISK_CIRCUIT_THRESHOLD:-5}
       APP__MOVEMENTS__RATE_LIMIT_LIMIT: ${RATE_LIMIT:-30}
       # `/metrics` in Prometheus format. Off by default; the load profile turns
       # it on, because a load run without it cannot tell a shed request from a

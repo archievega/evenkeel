@@ -79,16 +79,16 @@ async def test_the_handler_label_is_a_route_template_not_a_path() -> None:
 
 def test_external_call_outcomes_are_countable_separately() -> None:
     """The reason this adapter exists: from outside, a shed request, a timeout
-    and an open circuit are all 503."""
+    and an exhausted retry budget are all 503."""
     metrics = PrometheusMetrics()
-    for outcome in ("success", "timeout", "bulkhead_full", "circuit_open"):
+    for outcome in ("success", "timeout", "bulkhead_full", "budget_exhausted"):
         metrics.observe_external_call(
             service="risk", operation="assess", outcome=outcome, duration_seconds=0.1
         )
 
     body = _render(metrics)
 
-    for outcome in ("success", "timeout", "bulkhead_full", "circuit_open"):
+    for outcome in ("success", "timeout", "bulkhead_full", "budget_exhausted"):
         assert f'outcome="{outcome}"' in body
 
 
