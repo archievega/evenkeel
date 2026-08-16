@@ -82,6 +82,60 @@ async def test_a_retried_deposit_is_applied_once(
     assert first.json()["entry_id"] == second.json()["entry_id"]
 
 
+async def test_one_owners_idempotency_key_does_not_collide_with_anothers(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """The keyspace is per owner, because the key is a string clients invent.
+
+    `k-42`, `1`, `retry` and today's date all get chosen, by more than one
+    caller. Unscoped, the second owner to use a popular key is told it "was
+    already used with a different payload" — a 409 for an operation they never
+    made, and an oracle telling them which keys somebody else is using.
+
+    Found by recording the README demo twice with the same key, not by a test,
+    which is why this one exists.
+    """
+    other_owner = OwnerId(uuid4())
+    mine = await open_wallet(client, owner_id)
+    theirs = await open_wallet(client, other_owner)
+    payload = {"amount": "5.00", "currency": "EUR"}
+    key = {"Idempotency-Key": "k-42"}
+
+    first = await client.post(
+        f"/v1/wallets/{mine}/deposits", json=payload, headers=auth(owner_id) | key
+    )
+    second = await client.post(
+        f"/v1/wallets/{theirs}/deposits", json=payload, headers=auth(other_owner) | key
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200, second.text
+    assert second.json()["replayed"] is False
+    assert first.json()["entry_id"] != second.json()["entry_id"]
+
+
+async def test_reusing_a_key_with_a_different_payload_is_still_refused(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """Scoping the keyspace must not soften the check inside it."""
+    wallet_id = await open_wallet(client, owner_id)
+    key = {"Idempotency-Key": "k-42"}
+
+    await client.post(
+        f"/v1/wallets/{wallet_id}/deposits",
+        json={"amount": "5.00", "currency": "EUR"},
+        headers=auth(owner_id) | key,
+    )
+    changed = await client.post(
+        f"/v1/wallets/{wallet_id}/deposits",
+        json={"amount": "6.00", "currency": "EUR"},
+        headers=auth(owner_id) | key,
+    )
+
+    assert changed.status_code == 409
+    assert changed.json()["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
 async def test_another_owner_sees_the_wallet_as_absent(
     client: AsyncClient, owner_id: OwnerId
 ) -> None:

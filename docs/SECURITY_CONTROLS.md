@@ -75,6 +75,7 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 | A risk refusal does not tell the caller which rule fired | [`interactors/wallets/move_money.py`](../src/evenkeel/application/interactors/wallets/move_money.py) | `test_a_refusal_does_not_say_which_rule_fired` | [209](https://cwe.mitre.org/data/definitions/209.html) |
 | Metric labels are a closed set: route templates and enum outcomes, never ids | [`prometheus/metrics.py`](../src/evenkeel/infrastructure/adapters/prometheus/metrics.py) | `test_the_handler_label_is_a_route_template_not_a_path` | [770](https://cwe.mitre.org/data/definitions/770.html) |
 | An APP-scoped client is closed at shutdown rather than left to the garbage collector | [`ioc/providers/core.py`](../src/evenkeel/setup/ioc/providers/core.py) | every Redis provider yields through `_redis_client`; the aiohttp session is owned by `open_http_risk_assessment` | [404](https://cwe.mitre.org/data/definitions/404.html) |
+| Idempotency keys are namespaced per owner, so one tenant's key cannot collide with — or report on — another's | [`services/wallet_movement.py`](../src/evenkeel/application/services/wallet_movement.py) | `test_one_owners_idempotency_key_does_not_collide_with_anothers`, `test_reusing_a_key_with_a_different_payload_is_still_refused` | [668](https://cwe.mitre.org/data/definitions/668.html) |
 | An adapter cannot drift from the port it is bound to | [`adapters/conformance.py`](../src/evenkeel/infrastructure/adapters/conformance.py) | CI `mypy` | — |
 
 ## Known gaps

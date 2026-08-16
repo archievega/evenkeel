@@ -176,10 +176,29 @@ class WalletMovementService:
         await self._remember(request, wallet, entry)
         return MovementOutcome(wallet=wallet, entry=entry, replayed=False)
 
+    @staticmethod
+    def _scoped_key(request: MovementRequest) -> str:
+        """The client's key, namespaced by owner.
+
+        The key is a string the caller invents. `k-42`, `1`, `retry` and today's
+        date all get chosen, by more than one caller, and the store is one
+        keyspace shared by every tenant. Unscoped, the second owner to use `k-42`
+        is told their key was "already used with a different payload" — a 409
+        for an operation they never made, and an oracle telling them which keys
+        somebody else is using.
+
+        Found by recording the README demo twice with the same key.
+
+        `owner_id` is also in the fingerprint. That is not redundant: the
+        fingerprint decides whether a *replay* is genuine, and this decides
+        whose keyspace is being read at all.
+        """
+        return f"{request.owner_id.value}:{request.idempotency_key}"
+
     async def _replayed(self, request: MovementRequest) -> MovementOutcome | None:
         if request.idempotency_key is None:
             return None
-        record = await self._idempotency.get(request.idempotency_key)
+        record = await self._idempotency.get(self._scoped_key(request))
         if record is None:
             return None
         if record.fingerprint != self._fingerprint(request):
@@ -205,7 +224,7 @@ class WalletMovementService:
             return
         await self._idempotency.put(
             IdempotencyRecord(
-                key=request.idempotency_key,
+                key=self._scoped_key(request),
                 fingerprint=self._fingerprint(request),
                 response={
                     "entry_id": str(entry.id_.value),

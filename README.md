@@ -16,15 +16,14 @@ method rather than a rewrite.
 docker compose up
 ```
 
-Then:
+![A terminal session against the running API: opening a wallet, a deposit, an
+overdraft refused as an RFC 9457 problem document, a retry that replays instead
+of moving money twice, and another owner's wallet answering 404](docs/demo.gif)
 
-```bash
-curl -s localhost:8000/ready
-```
-
-```json
-{"status":"ready","dependencies":{"database":{"healthy":true,"error":null}}}
-```
+Nothing in that recording is staged. It is
+[one VHS tape](tools/demo/api.tape) driven against the same image CI boots in
+its smoke job, and re-recording it is two commands — which is the point: a
+README that can be re-run cannot quietly drift from the code.
 
 ---
 
