@@ -1,7 +1,11 @@
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_SECRET = "change-me"
+# nosec B105 — the opposite of a hardcoded credential. This is the sentinel the
+# boot check compares against: seeing it means nobody supplied a secret, and the
+# server refuses to start in production. Removing it would remove the guard, not
+# the risk.
+DEFAULT_SECRET = "change-me"  # nosec B105
 
 
 class LoggingConfig(BaseModel):
@@ -20,7 +24,11 @@ class AppConfig(BaseModel):
     name: str = "evenkeel"
     environment: str = "local"
     debug: bool = True
-    host: str = "0.0.0.0"
+    # nosec B104 — a container that binds loopback is unreachable from outside
+    # itself, so 0.0.0.0 is the only workable default here. Exposure is
+    # controlled one layer out: compose publishes to 127.0.0.1 only, and in
+    # production the container sits behind a reverse proxy.
+    host: str = "0.0.0.0"  # nosec B104
     port: int = 8000
     workers: int = 1
     reload: bool = False
