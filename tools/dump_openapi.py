@@ -26,10 +26,13 @@ DEFAULT_TARGET = ROOT / "openapi.json"
 
 
 def render() -> str:
-    # Pinned before the app is imported: `create_app` reads APP_VERSION for
+    # Removed before the app is imported: `create_app` reads APP_VERSION for
     # `info.version`, and a tagged CI build would otherwise produce a document
     # that differs from the committed one for a reason nobody cares about.
-    os.environ["APP_VERSION"] = "dev"
+    # Falling back to the package version keeps this deterministic and prints
+    # something meaningful on the published reference, where "dev" read as an
+    # unfinished page.
+    os.environ.pop("APP_VERSION", None)
 
     from dishka import make_async_container
     from dishka.integrations.fastapi import FastapiProvider

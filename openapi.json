@@ -422,16 +422,18 @@
       }
     },
     "securitySchemes": {
-      "HTTPBearer": {
+      "Owner bearer token": {
+        "bearerFormat": "UUID",
+        "description": "Any UUID, and it is the owner id — there is no signup, no login endpoint and no token service in this template.\n\nThe bundled `DevIdentityProvider` treats the bearer token as the identity, so `Authorization: Bearer 018f4b2c-...` opens a fresh account and `uuidgen` is the whole onboarding flow. Wallets are scoped to it: use the same value again to see them, a different one to be somebody else.\n\nThat adapter refuses to start outside a local run, which is enforced by the boot guard. A real deployment swaps one provider method for a JWT/JWKS adapter, and this description changes with it.",
         "scheme": "bearer",
         "type": "http"
       }
     }
   },
   "info": {
-    "description": "\nA wallet ledger, used here as the reference vertical for a backend template.\n\n**Reading the error contract.** Every failure is an\n[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`\ndocument. Branch on `code`, never on `title` — titles are prose and may be\nreworded, codes are part of the contract. Every response carries a\n`correlation_id`, in the body and in the `X-Correlation-ID` header; quote it\nwhen reporting a failure and it will find the server-side log line.\n\n**Retrying safely.** Send an `Idempotency-Key` header on deposits and\nwithdrawals. A retry then returns the original entry with `replayed: true`\ninstead of moving money again — including when the retry arrives while the\nfirst request is still in flight. Reusing one key with a different payload is\nrefused with `409`, never silently confirmed.\n\n**Ownership.** Every read is filtered by owner in SQL rather than checked\nafterwards, so a wallet belonging to someone else is reported as absent rather\nthan forbidden. The status code cannot be used to discover which ids exist.\n\n**Money.** Amounts are decimal strings, never JSON numbers, and arithmetic\nacross currencies is refused rather than converted.\n",
+    "description": "\nA wallet ledger, used here as the reference vertical for a backend template.\n\n**Getting a token.** There is none to get: send `Authorization: Bearer <any\nuuid>` and that UUID is your owner id. The bundled identity adapter is a\nplaceholder — no signup, no login endpoint — and it refuses to start outside a\nlocal run. Use the same UUID again to see your wallets, a different one to be\nsomebody else.\n\n**Reading the error contract.** Every failure is an\n[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`\ndocument. Branch on `code`, never on `title` — titles are prose and may be\nreworded, codes are part of the contract. Every response carries a\n`correlation_id`, in the body and in the `X-Correlation-ID` header; quote it\nwhen reporting a failure and it will find the server-side log line.\n\n**Retrying safely.** Send an `Idempotency-Key` header on deposits and\nwithdrawals. A retry then returns the original entry with `replayed: true`\ninstead of moving money again — including when the retry arrives while the\nfirst request is still in flight. Reusing one key with a different payload is\nrefused with `409`, never silently confirmed.\n\n**Ownership.** Every read is filtered by owner in SQL rather than checked\nafterwards, so a wallet belonging to someone else is reported as absent rather\nthan forbidden. The status code cannot be used to discover which ids exist.\n\n**Money.** Amounts are decimal strings, never JSON numbers, and arithmetic\nacross currencies is refused rather than converted.\n",
     "title": "evenkeel",
-    "version": "dev"
+    "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -559,7 +561,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "List the caller's wallets",
@@ -616,7 +618,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "Open a wallet",
@@ -688,7 +690,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "Read one wallet",
@@ -830,7 +832,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "Credit a wallet",
@@ -930,7 +932,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "List ledger entries for a wallet",
@@ -1072,7 +1074,7 @@
         },
         "security": [
           {
-            "HTTPBearer": []
+            "Owner bearer token": []
           }
         ],
         "summary": "Debit a wallet",
@@ -1105,6 +1107,10 @@
     }
   },
   "servers": [
+    {
+      "description": "docker compose up",
+      "url": "http://localhost:8000"
+    },
     {
       "description": "This deployment",
       "url": "/"

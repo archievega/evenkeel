@@ -1,6 +1,7 @@
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from dishka import AsyncContainer
 from dishka.integrations.fastapi import setup_dishka
@@ -19,6 +20,12 @@ log = get_logger(__name__)
 
 API_DESCRIPTION = """
 A wallet ledger, used here as the reference vertical for a backend template.
+
+**Getting a token.** There is none to get: send `Authorization: Bearer <any
+uuid>` and that UUID is your owner id. The bundled identity adapter is a
+placeholder — no signup, no login endpoint — and it refuses to start outside a
+local run. Use the same UUID again to see your wallets, a different one to be
+somebody else.
 
 **Reading the error contract.** Every failure is an
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
@@ -153,11 +160,17 @@ def create_app(
     app = FastAPI(
         title=resolved_settings.app.name,
         description=API_DESCRIPTION,
-        version=os.getenv("APP_VERSION", "dev"),
+        version=os.getenv("APP_VERSION", version("evenkeel")),
         openapi_tags=TAGS_METADATA,
-        # Declared so a "try it" client in any renderer knows where to send.
-        # Relative, because the template does not know its own public host.
-        servers=[{"url": "/", "description": "This deployment"}],
+        # Ordered for the published reference, where a relative URL resolves
+        # to the documentation host and "try it" quietly posts at GitHub Pages.
+        # There is no hosted API to point at — the one a reader can actually
+        # reach is the one they started — so localhost goes first and the
+        # relative entry stays for anyone reading the docs off the service.
+        servers=[
+            {"url": "http://localhost:8000", "description": "docker compose up"},
+            {"url": "/", "description": "This deployment"},
+        ],
         # `debug` is never passed through. Starlette's ServerErrorMiddleware
         # checks it BEFORE consulting the installed handler, so a truthy value
         # replaces the RFC 9457 document with an HTML page carrying the
