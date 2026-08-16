@@ -146,8 +146,12 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - run: uv sync --frozen --all-extras
+      # No `--strict`: it fails on any dependency it cannot audit, and the
+      # project itself is installed editable and not on PyPI, so the flag makes
+      # the job fail permanently for a reason that is not a vulnerability.
+      # Without it, real advisories still fail the build and the skip is printed.
       - name: known vulnerabilities in dependencies
-        run: uv run pip-audit --strict
+        run: uv run pip-audit --skip-editable
       - name: static security analysis
         run: uv run bandit -r src -c pyproject.toml
 

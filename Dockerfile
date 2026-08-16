@@ -1,16 +1,22 @@
 # syntax=docker/dockerfile:1.7
 
-# Pin the patch version, never `latest`. A floating tag on the image that
-# resolves your dependency graph silently defeats `uv sync --frozen`: the lock
-# file is honoured by a resolver you did not choose. Renovate can promote these
-# to digests once the repository has it enabled.
-ARG PYTHON_VERSION=3.13.3
+# Never `latest`. A floating tag on the image that resolves your dependency
+# graph silently defeats `uv sync --frozen`: the lock is honoured by a resolver
+# you did not choose.
+#
+# The Python tag is pinned to the minor line and the distro to trixie on
+# purpose. Pinning a patch (`3.13.3-slim-bookworm`) froze the OS package set
+# too, and the image accumulated eight HIGH/CRITICAL CVEs in openssl and
+# perl-base that all had fixes available upstream — the scan caught exactly
+# that. Renovate promotes this to a digest and bumps it, which is the only way
+# a pin stays both reproducible and current.
+ARG PYTHON_VERSION=3.13
 ARG UV_VERSION=0.11.7
 ARG APP_UID=10001
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS base
+FROM python:${PYTHON_VERSION}-slim-trixie AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -65,6 +71,15 @@ COPY --from=builder --chown=root:root /app/src /app/src
 # has to travel with it. Its paths are relative to WORKDIR, which is /app in
 # both the build and the runtime stage.
 COPY --chown=root:root alembic.ini /app/alembic.ini
+
+# pip is not needed once the venv is built, and leaving it costs twice: its
+# vendored copies of msgpack and setuptools ship known CVEs that a scanner will
+# flag forever, and an attacker who gets code execution finds a package
+# installer already in the container. Deleting the component is the honest fix;
+# a .trivyignore would only hide the same bytes.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+           /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3*
 
 USER app
 EXPOSE 8000
