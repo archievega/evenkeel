@@ -22,7 +22,7 @@ from evenkeel.application.ports import (
     BulkheadPolicy,
     BulkheadPort,
     DistributedLockPort,
-    IdempotencyRecord,
+    IdempotencyOutcome,
     IdempotencyStore,
     RateLimiterPort,
     RateLimitPolicy,
@@ -200,40 +200,137 @@ class TestRateLimiterContract:
 
 
 class TestIdempotencyStoreContract:
-    RECORD = IdempotencyRecord(key="k", fingerprint="f", response={"entry_id": "1"})
+    """Reserve, confirm, release — the same four outcomes from both adapters.
 
-    async def test_an_unknown_key_is_absent(
+    The two-phase shape exists because writing the record after the commit
+    leaves a window where money has moved and nothing remembers the key. Every
+    rule below is one an adapter could plausibly get wrong on its own, which is
+    the entire argument for testing them against one suite.
+    """
+
+    FINGERPRINT = "f"
+
+    async def test_an_unclaimed_key_is_reserved(
         self, idempotency_store: IdempotencyStore
     ) -> None:
-        assert await idempotency_store.get("never-written") is None
+        reservation = await idempotency_store.reserve(
+            "fresh", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
 
-    async def test_a_stored_record_round_trips(
+        assert reservation.outcome is IdempotencyOutcome.RESERVED
+        assert reservation.may_proceed
+
+    async def test_a_second_claim_before_confirmation_is_in_progress(
         self, idempotency_store: IdempotencyStore
     ) -> None:
-        await idempotency_store.put(self.RECORD, ttl_seconds=60)
+        """The race the atomic claim exists for: two callers, one key, and no
+        result to hand the loser yet."""
+        await idempotency_store.reserve(
+            "racing", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
 
-        found = await idempotency_store.get("k")
+        second = await idempotency_store.reserve(
+            "racing", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
 
-        assert found is not None
-        assert found.fingerprint == "f"
-        assert found.response == {"entry_id": "1"}
+        assert second.outcome is IdempotencyOutcome.IN_PROGRESS
+        assert second.record is None
 
-    async def test_a_non_positive_ttl_stores_nothing(
+    async def test_a_confirmed_key_replays_its_response(
         self, idempotency_store: IdempotencyStore
     ) -> None:
-        await idempotency_store.put(self.RECORD, ttl_seconds=0)
+        await idempotency_store.reserve(
+            "done", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
+        await idempotency_store.confirm(
+            "done", response={"entry_id": "1"}, ttl_seconds=60
+        )
 
-        assert await idempotency_store.get("k") is None
+        again = await idempotency_store.reserve(
+            "done", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
 
-    async def test_a_record_is_gone_once_its_ttl_elapses(
+        assert again.outcome is IdempotencyOutcome.COMPLETED
+        assert again.record is not None
+        assert again.record.response == {"entry_id": "1"}
+
+    async def test_the_same_key_with_a_different_payload_conflicts(
         self, idempotency_store: IdempotencyStore
     ) -> None:
-        await idempotency_store.put(self.RECORD, ttl_seconds=1)
-        assert await idempotency_store.get("k") is not None
+        await idempotency_store.reserve("reused", fingerprint="original", ttl_seconds=60)
+
+        different = await idempotency_store.reserve(
+            "reused", fingerprint="changed", ttl_seconds=60
+        )
+
+        assert different.outcome is IdempotencyOutcome.CONFLICT
+
+    async def test_a_released_key_can_be_claimed_again(
+        self, idempotency_store: IdempotencyStore
+    ) -> None:
+        """A refusal must not burn the key for the length of the TTL."""
+        await idempotency_store.reserve(
+            "refused", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
+
+        await idempotency_store.release("refused")
+
+        assert (
+            await idempotency_store.reserve(
+                "refused", fingerprint=self.FINGERPRINT, ttl_seconds=60
+            )
+        ).outcome is IdempotencyOutcome.RESERVED
+
+    async def test_releasing_a_confirmed_key_does_nothing(
+        self, idempotency_store: IdempotencyStore
+    ) -> None:
+        """The work happened. Forgetting it would let a retry do it again — the
+        one direction in which `release` must not be helpful."""
+        await idempotency_store.reserve(
+            "finished", fingerprint=self.FINGERPRINT, ttl_seconds=60
+        )
+        await idempotency_store.confirm(
+            "finished", response={"entry_id": "1"}, ttl_seconds=60
+        )
+
+        await idempotency_store.release("finished")
+
+        assert (
+            await idempotency_store.reserve(
+                "finished", fingerprint=self.FINGERPRINT, ttl_seconds=60
+            )
+        ).outcome is IdempotencyOutcome.COMPLETED
+
+    async def test_a_non_positive_ttl_claims_nothing(
+        self, idempotency_store: IdempotencyStore
+    ) -> None:
+        """`SET ... EX 0` is an error in Redis and was silently accepted by the
+        in-memory store — the first thing this suite caught when it met a real
+        server."""
+        first = await idempotency_store.reserve(
+            "expired", fingerprint=self.FINGERPRINT, ttl_seconds=0
+        )
+        second = await idempotency_store.reserve(
+            "expired", fingerprint=self.FINGERPRINT, ttl_seconds=0
+        )
+
+        assert first.outcome is IdempotencyOutcome.RESERVED
+        assert second.outcome is IdempotencyOutcome.RESERVED, "nothing was stored"
+
+    async def test_a_reservation_expires(
+        self, idempotency_store: IdempotencyStore
+    ) -> None:
+        await idempotency_store.reserve(
+            "short", fingerprint=self.FINGERPRINT, ttl_seconds=1
+        )
 
         await asyncio.sleep(1.2)
 
-        assert await idempotency_store.get("k") is None
+        assert (
+            await idempotency_store.reserve(
+                "short", fingerprint=self.FINGERPRINT, ttl_seconds=60
+            )
+        ).outcome is IdempotencyOutcome.RESERVED
 
 
 class TestBulkheadContract:

@@ -54,9 +54,9 @@ MOVEMENT_FORBIDDEN: Responses = {
 MOVEMENT_REFUSED: Responses = {
     409: _problem(
         "The movement was refused and nothing changed: insufficient funds, the "
-        "wallet is closed, another writer holds it, a concurrent write won, or "
-        "the idempotency key was reused with a different payload. `code` "
-        "distinguishes them."
+        "wallet is closed, another writer holds it, a concurrent write won, an "
+        "earlier request with this idempotency key is still running, or the key "
+        "was reused with a different payload. `code` distinguishes them."
     )
 }
 

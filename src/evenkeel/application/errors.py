@@ -10,6 +10,7 @@ class ApplicationErrorCode(StrEnum):
     WALLET_BUSY = "WALLET_BUSY"
     IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
     MOVEMENT_REFUSED = "MOVEMENT_REFUSED"
+    MOVEMENT_IN_PROGRESS = "MOVEMENT_IN_PROGRESS"
     RATE_LIMITED = "RATE_LIMITED"
     DEPENDENCY_UNAVAILABLE = "DEPENDENCY_UNAVAILABLE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -26,6 +27,9 @@ APPLICATION_ERROR_MESSAGES: dict[ApplicationErrorCode, str] = {
     ),
     ApplicationErrorCode.MOVEMENT_REFUSED: (
         "The movement was refused by risk assessment"
+    ),
+    ApplicationErrorCode.MOVEMENT_IN_PROGRESS: (
+        "A movement with this idempotency key is still running, retry shortly"
     ),
     ApplicationErrorCode.RATE_LIMITED: "Too many requests",
     ApplicationErrorCode.DEPENDENCY_UNAVAILABLE: (

@@ -16,25 +16,33 @@ from decimal import Decimal
 import pytest
 
 from evenkeel.application.errors import ApplicationErrorCode, ConflictError
-from evenkeel.application.ports import IdempotencyRecord, IdempotencyStore
+from evenkeel.application.ports import IdempotencyReservation
+from evenkeel.application.services.wallet_movement import MovementOutcome
 from evenkeel.domain.entities.ledger_entry import LedgerDirection
 from evenkeel.domain.errors import DomainError, DomainErrorCode
+from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
 from tests.unit.test_wallet_movement import Harness
 
 
-class YieldingIdempotencyStore(IdempotencyStore):
-    """In-memory, but every operation suspends like a real round trip."""
+class YieldingIdempotencyStore(InMemoryIdempotencyStore):
+    """The real in-memory store, suspending like a round trip on every call.
 
-    def __init__(self) -> None:
-        self._records: dict[str, IdempotencyRecord] = {}
+    The suspension is the test. Without it the claim looks atomic because
+    nothing else ever gets to run between its read and its write, which is
+    exactly the illusion a single-process test creates and a network destroys.
+    """
 
-    async def get(self, key: str) -> IdempotencyRecord | None:
+    async def reserve(self, key: str, **kwargs: object) -> IdempotencyReservation:
         await asyncio.sleep(0)
-        return self._records.get(key)
+        return await super().reserve(key, **kwargs)  # type: ignore[arg-type]
 
-    async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
+    async def confirm(self, key: str, **kwargs: object) -> None:
         await asyncio.sleep(0)
-        self._records[record.key] = record
+        await super().confirm(key, **kwargs)  # type: ignore[arg-type]
+
+    async def release(self, key: str) -> None:
+        await asyncio.sleep(0)
+        await super().release(key)
 
 
 def harness_with_yielding_store() -> Harness:
@@ -46,9 +54,13 @@ def harness_with_yielding_store() -> Harness:
 async def test_two_in_flight_requests_with_one_key_apply_once() -> None:
     """The claim `docs/SECURITY_CONTROLS.md` makes about CWE-837.
 
-    Without serialising the replay check, both callers miss the store, both
-    queue on the lock, and both apply — 20.00 leaves a wallet that authorised
-    10.00.
+    Without an atomic claim both callers miss the store, both queue on the lock,
+    and both apply — 20.00 leaves a wallet that authorised 10.00.
+
+    The loser is refused rather than answered. There is no result to replay yet:
+    the winner has not finished, and inventing one would be a receipt for
+    something that may still fail. Stripe answers a concurrent duplicate the
+    same way, and the client's move is the same as for any 409 — ask again.
     """
     harness = harness_with_yielding_store()
     request = harness.request(
@@ -56,14 +68,57 @@ async def test_two_in_flight_requests_with_one_key_apply_once() -> None:
     )
 
     results = await asyncio.gather(
-        harness.service.apply(request), harness.service.apply(request)
+        harness.service.apply(request),
+        harness.service.apply(request),
+        return_exceptions=True,
     )
 
+    applied = [r for r in results if isinstance(r, MovementOutcome)]
+    refused = [r for r in results if isinstance(r, ConflictError)]
+    assert len(applied) == 1
+    assert len(refused) == 1
+    assert refused[0].code is ApplicationErrorCode.MOVEMENT_IN_PROGRESS
     assert harness.wallet.balance.amount == Decimal("90.00")
     assert len(harness.ledger.entries) == 1
     assert harness.transaction_manager.commits == 1
-    assert sum(1 for r in results if r.replayed) == 1
-    assert results[0].entry.id_ == results[1].entry.id_
+
+
+async def test_the_retry_that_arrives_after_the_original_finishes_replays() -> None:
+    """The common case, and the one that must not be a 409: a client that gave
+    up waiting and asked again."""
+    harness = harness_with_yielding_store()
+    request = harness.request(
+        "10.00", direction=LedgerDirection.DEBIT, idempotency_key="retry-later"
+    )
+
+    first = await harness.service.apply(request)
+    second = await harness.service.apply(request)
+
+    assert first.replayed is False
+    assert second.replayed is True
+    assert second.entry.id_ == first.entry.id_
+    assert harness.wallet.balance.amount == Decimal("90.00")
+    assert harness.transaction_manager.commits == 1
+
+
+async def test_a_refused_movement_gives_the_key_back() -> None:
+    """A key burned by a refusal would make the client wait out a 24 hour TTL
+    before it could retry something that never happened."""
+    harness = Harness(balance="5.00")
+    harness.service._idempotency = YieldingIdempotencyStore()
+    too_much = harness.request(
+        "10.00", direction=LedgerDirection.DEBIT, idempotency_key="same-key"
+    )
+
+    with pytest.raises(DomainError):
+        await harness.service.apply(too_much)
+    affordable = harness.request(
+        "5.00", direction=LedgerDirection.DEBIT, idempotency_key="same-key"
+    )
+    result = await harness.service.apply(affordable)
+
+    assert result.replayed is False
+    assert harness.wallet.balance.amount == Decimal("0.00")
 
 
 async def test_concurrent_requests_without_a_key_both_apply() -> None:

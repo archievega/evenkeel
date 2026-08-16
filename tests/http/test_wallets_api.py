@@ -1,3 +1,5 @@
+import asyncio
+from functools import partial
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -237,3 +239,61 @@ async def test_the_ledger_records_both_movements(
     entries = response.json()["items"]
     assert {e["direction"] for e in entries} == {"credit", "debit"}
     assert {e["amount"] for e in entries} == {"50.00", "20.00"}
+
+
+async def test_a_replay_reports_the_balance_it_was_written_with(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """ADR 4 promises "the original result". It used to return the original
+    entry beside the *current* balance, so a wallet that moved on in between
+    produced one response disagreeing with itself."""
+    wallet_id = await open_wallet(client, owner_id)
+    key = {"Idempotency-Key": "receipt"}
+    payload = {"amount": "10.00", "currency": "EUR"}
+
+    first = await client.post(
+        f"/v1/wallets/{wallet_id}/deposits", json=payload, headers=auth(owner_id) | key
+    )
+    await client.post(
+        f"/v1/wallets/{wallet_id}/deposits",
+        json={"amount": "5.00", "currency": "EUR"},
+        headers=auth(owner_id),
+    )
+    replay = await client.post(
+        f"/v1/wallets/{wallet_id}/deposits", json=payload, headers=auth(owner_id) | key
+    )
+
+    assert replay.json()["replayed"] is True
+    assert replay.json()["balance"] == first.json()["balance"] == "10.00"
+    assert replay.json()["entry_id"] == first.json()["entry_id"]
+
+
+async def test_two_concurrent_requests_with_one_key_move_money_once(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """Which of the two answers arrives is timing; that the money moved once is
+    not.
+
+    Asserted as the invariant rather than as a pair of status codes: through the
+    in-memory store the first request often finishes before the second claims
+    the key, so the second replays with 200 instead of being refused with 409.
+    Both are correct. `tests/unit/test_movement_concurrency.py` pins the refusal
+    itself, with a store that suspends on every call the way a network does.
+    """
+    wallet_id = await open_wallet(client, owner_id)
+    key = {"Idempotency-Key": "concurrent"}
+    payload = {"amount": "1.00", "currency": "EUR"}
+    post = partial(
+        client.post,
+        f"/v1/wallets/{wallet_id}/deposits",
+        json=payload,
+        headers=auth(owner_id) | key,
+    )
+
+    both = await asyncio.gather(post(), post())
+
+    assert {r.status_code for r in both} <= {200, 409}
+    applied = [r for r in both if r.status_code == 200 and not r.json()["replayed"]]
+    assert len(applied) == 1, "the movement was applied more than once"
+    balance = await client.get(f"/v1/wallets/{wallet_id}", headers=auth(owner_id))
+    assert balance.json()["balance"] == "1.00"

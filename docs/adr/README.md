@@ -13,6 +13,7 @@ failed in a specific way.
 | [5](0005-null-adapters-for-optional-dependencies.md) | Every optional dependency ships a null adapter |
 | [6](0006-outbound-calls.md) | Outbound calls carry four guards, and unavailable is an outcome |
 | [7](0007-mcp-as-a-second-transport.md) | MCP over the same use cases, with the owner bound out of the model's reach |
+| [8](0008-idempotency-is-claimed-before-the-work.md) | The idempotency key is claimed before the work, not written after it |
 
 ## Writing a new one
 

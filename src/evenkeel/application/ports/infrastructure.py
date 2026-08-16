@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
@@ -106,8 +107,34 @@ class IdempotencyRecord:
     response: dict[str, object]
 
 
+class IdempotencyOutcome(StrEnum):
+    """What claiming a key found there."""
+
+    RESERVED = "reserved"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CONFLICT = "conflict"
+
+
+@dataclass(frozen=True, slots=True)
+class IdempotencyReservation:
+    outcome: IdempotencyOutcome
+    record: IdempotencyRecord | None = None
+
+    @property
+    def may_proceed(self) -> bool:
+        return self.outcome is IdempotencyOutcome.RESERVED
+
+
 class IdempotencyStore(ABC):
-    """Replay protection for non-idempotent use cases.
+    """Replay protection, claimed before the work and confirmed after it.
+
+    The obvious shape — do the work, then write the record — has a window that
+    matters when the work is money: if the store is unreachable in the moment
+    between the commit and the write, the caller gets a 503 for a movement that
+    already happened, and nothing recorded the key, so their retry moves it
+    again. Two phases close it. The key is claimed first, so a retry inside the
+    TTL finds the claim rather than an empty store.
 
     ``fingerprint`` is a hash of the request payload: reusing one key with a
     different body is a client bug, and returning the first response for it
@@ -115,15 +142,29 @@ class IdempotencyStore(ABC):
     """
 
     @abstractmethod
-    async def get(self, key: str) -> IdempotencyRecord | None: ...
+    async def reserve(
+        self, key: str, *, fingerprint: str, ttl_seconds: int
+    ) -> IdempotencyReservation:
+        """Claim the key, atomically, and say what was already there.
+
+        Atomically because this replaces a check-then-act that two concurrent
+        requests could both pass. The four outcomes are the whole contract:
+        ``RESERVED`` is yours to proceed with, ``IN_PROGRESS`` means another
+        caller holds it right now, ``COMPLETED`` carries the original record to
+        replay, and ``CONFLICT`` is the same key with a different payload.
+        """
 
     @abstractmethod
-    async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
-        """Store a record for ``ttl_seconds``.
+    async def confirm(
+        self, key: str, *, response: dict[str, object], ttl_seconds: int
+    ) -> None:
+        """Attach the result to a reservation you hold."""
 
-        A non-positive TTL means "already expired": the record is not stored and
-        a later ``get`` returns ``None``. Leaving this undefined is how two
-        adapters end up disagreeing -- the in-memory one accepted ``0`` while
-        Redis rejected ``SET ... EX 0`` outright, which the contract suite
-        caught only once it ran against a real server.
+    @abstractmethod
+    async def release(self, key: str) -> None:
+        """Give the key back, so a refused request does not poison it.
+
+        Called when the work did not happen — insufficient funds, no such
+        wallet, a lost version race. Leaving the reservation would make the
+        client wait out the TTL before it could retry something that never ran.
         """

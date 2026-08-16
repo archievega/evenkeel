@@ -176,7 +176,7 @@ class _MovementInteractor:
             return MovementResult(
                 entry_id=result.entry.id_,
                 wallet_id=result.wallet.id_,
-                balance=result.wallet.balance,
+                balance=result.balance,
                 replayed=result.replayed,
             )
         except ApplicationError as failure:

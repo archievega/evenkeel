@@ -792,7 +792,7 @@
               },
               "application/problem+json": {}
             },
-            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, or the idempotency key was reused with a different payload. `code` distinguishes them."
+            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, an earlier request with this idempotency key is still running, or the key was reused with a different payload. `code` distinguishes them."
           },
           "422": {
             "content": {
@@ -1034,7 +1034,7 @@
               },
               "application/problem+json": {}
             },
-            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, or the idempotency key was reused with a different payload. `code` distinguishes them."
+            "description": "The movement was refused and nothing changed: insufficient funds, the wallet is closed, another writer holds it, a concurrent write won, an earlier request with this idempotency key is still running, or the key was reused with a different payload. `code` distinguishes them."
           },
           "422": {
             "content": {

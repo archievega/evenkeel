@@ -142,6 +142,7 @@ Each of these cost real debugging time here. Do not re-introduce them.
 | A metric labelled `error` for an ordinary conflict | `outcome` initialised to `"error"` and only overwritten on success | label by the error code |
 | A load run that measures the rate limiter | 30 movements/owner/minute by default | raise `RATE_LIMIT` for the run, do not work around it in the script |
 | Logs corrupt an stdio protocol | `setup_logging` writes to stdout, which `evenkeel-mcp` uses for JSON-RPC | pass `stream=sys.stderr` |
+| Money moved but the caller got a 503 | a record written *after* the commit, with a store failure in between | claim the key first — `reserve` / `confirm` / `release`, ADR 8 |
 | A comment quotes a number nobody can reproduce | it was measured once, by hand, and the code moved | regenerate it from a committed tool, or delete the number |
 
 ## Comments

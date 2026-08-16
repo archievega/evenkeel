@@ -12,7 +12,7 @@ from evenkeel.application.errors import (
 from evenkeel.application.ports import (
     Clock,
     DistributedLockPort,
-    IdempotencyRecord,
+    IdempotencyOutcome,
     IdempotencyStore,
     IdGenerator,
     LedgerRepository,
@@ -39,6 +39,12 @@ class MovementOutcome:
     wallet: Wallet
     entry: LedgerEntry
     replayed: bool
+    # Carried separately from `wallet.balance`, which is whatever the wallet
+    # holds *now*. On a replay those differ: the entry is the original, and the
+    # wallet has moved on. Returning them side by side gave one response that
+    # disagreed with itself and contradicted ADR 4's promise of "the original
+    # result". A receipt reports the balance it was written with.
+    balance: Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,14 +94,19 @@ class WalletMovementService:
         self._settings = settings
 
     async def apply(self, request: MovementRequest) -> MovementOutcome:
-        # Checked twice, and both are needed. Outside the lock this answers a
-        # retry that arrives after the original finished — the common case —
-        # without queueing behind an unrelated writer, which would otherwise
-        # turn a completed operation into a 409 under exactly the contention
-        # that produces retries. Inside the lock (below) is the authoritative
-        # one: it is the only placement that catches two requests already in
-        # flight with the same key.
-        replay = await self._replayed(request)
+        # Claimed before anything happens, and confirmed after the commit.
+        #
+        # The previous shape wrote the record *after* committing, which left a
+        # window: a store that was unreachable in that moment returned 503 for
+        # money that had already moved, with nothing recorded, so the client's
+        # retry moved it again.
+        #
+        # It also needed the check in two places — once outside the lock for
+        # the common retry and once inside it for the genuine race — and the
+        # first attempt at that combination answered 409 for a movement that
+        # had completed. An atomic claim needs neither: two concurrent requests
+        # with one key cannot both be `RESERVED`.
+        replay = await self._claim(request)
         if replay is not None:
             return replay
 
@@ -112,18 +123,11 @@ class WalletMovementService:
             )
             if not lock.acquired:
                 await self._transaction_manager.rollback()
+                await self._release(request)
                 raise ConflictError(
                     ApplicationErrorCode.WALLET_BUSY,
                     details={"wallet_id": str(request.wallet_id.value)},
                 )
-            # The authoritative check. Two requests that both missed the fast
-            # path above serialise here, and the loser finds the record the
-            # winner wrote. Without it the version predicate does not help:
-            # the lock orders them, so the second reads post-commit state and
-            # its `WHERE version =` matches.
-            replay = await self._replayed(request)
-            if replay is not None:
-                return replay
             return await self._apply_locked(request)
 
     async def _apply_locked(self, request: MovementRequest) -> MovementOutcome:
@@ -134,6 +138,7 @@ class WalletMovementService:
         )
         if wallet is None:
             await self._transaction_manager.rollback()
+            await self._release(request)
             raise NotFoundError(
                 ApplicationErrorCode.WALLET_NOT_FOUND,
                 details={"wallet_id": str(request.wallet_id.value)},
@@ -151,6 +156,9 @@ class WalletMovementService:
             # with an open transaction. Every other branch here rolls back; a
             # session handed on mid-transaction is the next request's problem.
             await self._transaction_manager.rollback()
+            # And the key goes back: nothing happened, so a retry with it should
+            # be allowed to reach a different answer once the wallet is funded.
+            await self._release(request)
             raise
 
         entry = LedgerEntry.record(
@@ -167,14 +175,17 @@ class WalletMovementService:
         updated = await self._wallets.update(wallet, expected_version=expected_version)
         if not updated:
             await self._transaction_manager.rollback()
+            await self._release(request)
             raise ConflictError(
                 ApplicationErrorCode.WALLET_VERSION_CONFLICT,
                 details={"wallet_id": str(wallet.id_.value)},
             )
 
         await self._transaction_manager.commit()
-        await self._remember(request, wallet, entry)
-        return MovementOutcome(wallet=wallet, entry=entry, replayed=False)
+        await self._confirm(request, wallet, entry)
+        return MovementOutcome(
+            wallet=wallet, entry=entry, replayed=False, balance=wallet.balance
+        )
 
     @staticmethod
     def _scoped_key(request: MovementRequest) -> str:
@@ -195,44 +206,67 @@ class WalletMovementService:
         """
         return f"{request.owner_id.value}:{request.idempotency_key}"
 
-    async def _replayed(self, request: MovementRequest) -> MovementOutcome | None:
+    async def _claim(self, request: MovementRequest) -> MovementOutcome | None:
+        """Take the key, or explain what already has it."""
         if request.idempotency_key is None:
             return None
-        record = await self._idempotency.get(self._scoped_key(request))
-        if record is None:
+
+        reservation = await self._idempotency.reserve(
+            self._scoped_key(request),
+            fingerprint=self._fingerprint(request),
+            ttl_seconds=self._settings.idempotency_ttl_seconds,
+        )
+        if reservation.may_proceed:
             return None
-        if record.fingerprint != self._fingerprint(request):
+
+        if reservation.outcome is IdempotencyOutcome.CONFLICT:
             raise ConflictError(
                 ApplicationErrorCode.IDEMPOTENCY_KEY_REUSED,
                 details={"idempotency_key": request.idempotency_key},
             )
+        if reservation.outcome is IdempotencyOutcome.IN_PROGRESS:
+            # The original is still running. Answering it as a replay would mean
+            # inventing a result nobody has produced yet, so the honest answer
+            # is "ask again".
+            raise ConflictError(
+                ApplicationErrorCode.MOVEMENT_IN_PROGRESS,
+                details={"idempotency_key": request.idempotency_key},
+            )
+
+        record = reservation.record
+        if record is None:
+            return None
         entry_id = LedgerEntryId(UUID(str(record.response["entry_id"])))
         entry = await self._ledger.read(entry_id, request.owner_id)
         wallet = await self._wallets.read(request.wallet_id, request.owner_id)
         if entry is None or wallet is None:
-            # The stored key outlived its rows (restore from backup, manual
+            # The record outlived its rows (restore from backup, manual
             # cleanup). Falling through and re-applying is the lesser evil
-            # compared with returning a receipt for data that no longer exists.
+            # against returning a receipt for data that no longer exists.
             return None
         await self._transaction_manager.rollback()
-        return MovementOutcome(wallet=wallet, entry=entry, replayed=True)
+        return MovementOutcome(
+            wallet=wallet, entry=entry, replayed=True, balance=entry.balance_after
+        )
 
-    async def _remember(
+    async def _confirm(
         self, request: MovementRequest, wallet: Wallet, entry: LedgerEntry
     ) -> None:
         if request.idempotency_key is None:
             return
-        await self._idempotency.put(
-            IdempotencyRecord(
-                key=self._scoped_key(request),
-                fingerprint=self._fingerprint(request),
-                response={
-                    "entry_id": str(entry.id_.value),
-                    "wallet_id": str(wallet.id_.value),
-                },
-            ),
+        await self._idempotency.confirm(
+            self._scoped_key(request),
+            response={
+                "entry_id": str(entry.id_.value),
+                "wallet_id": str(wallet.id_.value),
+            },
             ttl_seconds=self._settings.idempotency_ttl_seconds,
         )
+
+    async def _release(self, request: MovementRequest) -> None:
+        if request.idempotency_key is None:
+            return
+        await self._idempotency.release(self._scoped_key(request))
 
     @staticmethod
     def _fingerprint(request: MovementRequest) -> str:
