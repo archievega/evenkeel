@@ -43,6 +43,14 @@ WALLET_ABSENT: Responses = {
     )
 }
 
+MOVEMENT_FORBIDDEN: Responses = {
+    403: _problem(
+        "Risk assessment refused the movement. Nothing changed, and retrying "
+        "with the same payload will be refused again. `details.reference` is "
+        "the provider's id for the decision, for a support conversation."
+    )
+}
+
 MOVEMENT_REFUSED: Responses = {
     409: _problem(
         "The movement was refused and nothing changed: insufficient funds, the "
@@ -82,6 +90,7 @@ def movement_responses() -> Responses:
     return {
         **UNAUTHENTICATED,
         **WALLET_ABSENT,
+        **MOVEMENT_FORBIDDEN,
         **MOVEMENT_REFUSED,
         **INVALID_REQUEST,
         **RATE_LIMITED,

@@ -63,6 +63,49 @@ TAGS_METADATA = [
 ]
 
 
+def _build_metrics(settings: Settings) -> MetricsPort:
+    """No-op unless asked, and asked for by configuration rather than by import.
+
+    The instrumentation calls are unconditional in the code above; what changes
+    is which object receives them. That is the whole null-adapter argument in
+    one function — no `if metrics_enabled` scattered through the use cases.
+    """
+    if not settings.observability.metrics_enabled:
+        return NoopMetrics()
+
+    from evenkeel.infrastructure.adapters.prometheus.metrics import PrometheusMetrics
+
+    return PrometheusMetrics()
+
+
+def _mount_metrics_endpoint(
+    app: FastAPI, metrics: MetricsPort, settings: Settings
+) -> None:
+    """`/metrics`, and only when there is something to expose.
+
+    Not authenticated. It publishes route templates, outcome counts and
+    latencies — no request bodies and no ids, by construction — but it is still
+    an internal surface, and the deployment is expected to keep it off the
+    public listener. Said here rather than assumed, because the alternative is
+    discovering it in someone else's scan.
+    """
+    registry = getattr(metrics, "registry", None)
+    if registry is None or not settings.observability.metrics_enabled:
+        return
+
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    async def scrape(request: Request) -> Response:
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
+
+    # A route, not `app.mount("/metrics", make_asgi_app(...))`. A mount answers
+    # the bare path with a 307 to `/metrics/`, which every scraper then follows
+    # on every scrape forever — working, and paying a round trip to do it.
+    app.add_route("/metrics", scrape, methods=["GET"], include_in_schema=False)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Startup and, more importantly, orderly shutdown.
@@ -94,7 +137,7 @@ def create_app(
     application than the one that ships.
     """
     resolved_settings = settings or load_settings()
-    resolved_metrics = metrics or NoopMetrics()
+    resolved_metrics = metrics or _build_metrics(resolved_settings)
 
     setup_logging(
         level=resolved_settings.app.logging.level,
@@ -128,6 +171,7 @@ def create_app(
         openapi_url=None if is_production else "/openapi.json",
     )
 
+    _mount_metrics_endpoint(app, resolved_metrics, resolved_settings)
     app.add_middleware(ObservabilityMiddleware, metrics=resolved_metrics)
     setup_routes(
         app,

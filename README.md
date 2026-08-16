@@ -43,6 +43,7 @@ things that only show up after a service has been in production for a while:
 | Errors | RFC 9457 Problem Details from a single handler, status code declared on the error class |
 | Metrics | route templates as labels, never raw paths — the standard way to melt Prometheus |
 | Secrets | redaction lives in the log pipeline, not at call sites |
+| Outbound calls | timeout, budget, bulkhead, circuit breaker, jittered retry, size cap — measured, not assumed |
 | Architecture | layering is enforced by `import-linter` in CI, not by a README promise |
 
 ## Architecture
@@ -90,6 +91,35 @@ Every failure is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
 `application/problem+json` document, and every status the API can return is
 declared in the schema — including the 409s, the 429 and the 503 that most
 generated specs omit. Branch on `code`, never on `title`.
+
+## Calling other services
+
+The one outbound dependency — risk assessment before a balance changes — is the
+reference for any that follow. It ships with a null adapter (`allow-all`), so
+none of it is in the way until you point `APP__RISK__PROVIDER=http` at a URL.
+
+Failures are values, not exceptions: a timeout, a refused connection, a 500, a
+malformed body, a full bulkhead and an open circuit all arrive as
+`RiskOutcome.UNAVAILABLE`, and the use case decides what that means. Refused and
+unavailable are never merged — one is the provider working, the other is the
+provider missing.
+
+The guards, and what each one covers:
+
+| | |
+| --- | --- |
+| circuit breaker | a dead provider costs one probe per cooldown, not one timeout per request |
+| bulkhead | a *slow* provider — the case a breaker never sees, because nothing is failing |
+| per-attempt timeout **and** an overall budget | the worst case is a number someone chose |
+| retries with full jitter, honouring `Retry-After` | only where a retry can succeed; never a 400, never a malformed 200 |
+| response size cap | a broken upstream cannot spend this process's memory |
+
+`docker compose --profile load up` starts a stub provider with dials for
+latency, failure rate and refusal rate, and `tools/load/wallets.js` drives it
+under k6. The measurements — including the one that contradicted a docstring and
+the one that showed the circuit breaker overreacting — are in
+[tools/load/README.md](tools/load/README.md), and the reasoning is
+[ADR 6](docs/adr/0006-outbound-calls.md).
 
 ## API reference
 

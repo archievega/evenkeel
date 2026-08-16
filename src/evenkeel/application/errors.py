@@ -9,6 +9,7 @@ class ApplicationErrorCode(StrEnum):
     WALLET_VERSION_CONFLICT = "WALLET_VERSION_CONFLICT"
     WALLET_BUSY = "WALLET_BUSY"
     IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
+    MOVEMENT_REFUSED = "MOVEMENT_REFUSED"
     RATE_LIMITED = "RATE_LIMITED"
     DEPENDENCY_UNAVAILABLE = "DEPENDENCY_UNAVAILABLE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -22,6 +23,9 @@ APPLICATION_ERROR_MESSAGES: dict[ApplicationErrorCode, str] = {
     ApplicationErrorCode.WALLET_BUSY: "Wallet is being modified, retry shortly",
     ApplicationErrorCode.IDEMPOTENCY_KEY_REUSED: (
         "Idempotency key was already used with a different payload"
+    ),
+    ApplicationErrorCode.MOVEMENT_REFUSED: (
+        "The movement was refused by risk assessment"
     ),
     ApplicationErrorCode.RATE_LIMITED: "Too many requests",
     ApplicationErrorCode.DEPENDENCY_UNAVAILABLE: (
@@ -77,6 +81,14 @@ class NotFoundError(ApplicationError):
 
 
 class ForbiddenError(ApplicationError):
+    """Authenticated, understood, and refused anyway.
+
+    Note the deliberate difference from a wallet that belongs to someone else,
+    which is a 404 (see ADR 0003): that 403 would leak which ids exist. This one
+    leaks nothing — the caller already owns the wallet and already knows the
+    amount. Refusing it plainly is the honest answer.
+    """
+
     default_status_code = 403
 
 

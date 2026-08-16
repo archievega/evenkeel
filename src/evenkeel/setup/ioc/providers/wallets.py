@@ -16,6 +16,7 @@ from evenkeel.application.services.wallet_movement import (
 )
 from evenkeel.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
 from evenkeel.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
+from evenkeel.setup.config import MovementPolicyConfig
 
 
 class WalletProvider(Provider):
@@ -46,5 +47,10 @@ class WalletProvider(Provider):
         return WalletMovementSettings()
 
     @provide(scope=Scope.APP)
-    def move_money_settings(self) -> MoveMoneySettings:
-        return MoveMoneySettings()
+    def move_money_settings(self, config: MovementPolicyConfig) -> MoveMoneySettings:
+        return MoveMoneySettings(
+            rate_limit_enabled=config.rate_limit_enabled,
+            rate_limit_limit=config.rate_limit_limit,
+            rate_limit_window_seconds=config.rate_limit_window_seconds,
+            risk_fail_open=config.risk_fail_open,
+        )

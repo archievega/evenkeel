@@ -23,6 +23,7 @@ from evenkeel.application.ports import (
     LedgerRepository,
     MetricsPort,
     RateLimiterPort,
+    RiskAssessmentPort,
     TransactionManager,
     WalletRepository,
 )
@@ -46,7 +47,7 @@ from tests.fakes.repositories import (
     FakeTransactionManager,
     FakeWalletRepository,
 )
-from tests.fakes.system import FixedClock
+from tests.fakes.system import FixedClock, ScriptedRiskAssessment
 
 
 class FakeInfrastructureProvider(Provider):
@@ -89,6 +90,8 @@ class FakeInfrastructureProvider(Provider):
     @provide
     def idempotency(self) -> IdempotencyStore:
         return InMemoryIdempotencyStore()
+
+    risk = from_context(provides=RiskAssessmentPort)
 
     @provide
     def movement_settings(self) -> WalletMovementSettings:
@@ -139,19 +142,31 @@ def ledger() -> FakeLedgerRepository:
 
 
 @pytest.fixture
+def risk() -> ScriptedRiskAssessment:
+    """Allows everything unless a test replaces the decision."""
+    return ScriptedRiskAssessment()
+
+
+@pytest.fixture
 def owner_id() -> OwnerId:
     return OwnerId(uuid4())
 
 
 @pytest.fixture
 async def client(
-    wallets: FakeWalletRepository, ledger: FakeLedgerRepository
+    wallets: FakeWalletRepository,
+    ledger: FakeLedgerRepository,
+    risk: ScriptedRiskAssessment,
 ) -> AsyncIterator[AsyncClient]:
     container = make_async_container(
         FakeInfrastructureProvider(),
         FakeRequestProvider(),
         FastapiProvider(),
-        context={FakeWalletRepository: wallets, FakeLedgerRepository: ledger},
+        context={
+            FakeWalletRepository: wallets,
+            FakeLedgerRepository: ledger,
+            RiskAssessmentPort: risk,
+        },
     )
     app = create_app(settings=Settings(), container=container)
     async with (

@@ -15,6 +15,20 @@ services:
       # without configuration gets the strict posture instead of this one.
       APP__APP__ENVIRONMENT: local
       APP__APP__LOGGING__JSON_LOGS: "false"
+      # Outbound risk assessment is off by default: `allow-all` is a real
+      # adapter that answers instantly, so the template needs no third party.
+      # `docker compose --profile load up` starts the stub below and points
+      # this at it — see tools/load/README.md.
+      APP__RISK__PROVIDER: ${RISK_PROVIDER:-allow-all}
+      APP__RISK__BASE_URL: ${RISK_BASE_URL:-http://risk:9800}
+      APP__RISK__HTTP__BULKHEAD_LIMIT: ${RISK_BULKHEAD_LIMIT:-32}
+      APP__RISK__HTTP__TOTAL_TIMEOUT_MS: ${RISK_TIMEOUT_MS:-800}
+      APP__RISK__HTTP__CIRCUIT_FAILURE_THRESHOLD: ${RISK_CIRCUIT_THRESHOLD:-5}
+      APP__MOVEMENTS__RATE_LIMIT_LIMIT: ${RATE_LIMIT:-30}
+      # `/metrics` in Prometheus format. Off by default; the load profile turns
+      # it on, because a load run without it cannot tell a shed request from a
+      # timed-out one.
+      APP__OBSERVABILITY__METRICS_ENABLED: ${METRICS_ENABLED:-false}
     ports:
       # Bound to loopback. Publishing on 0.0.0.0 exposes a development stack --
       # debug on, docs open, default password -- to the whole local network and,
@@ -37,6 +51,30 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+    restart: unless-stopped
+
+  # Only with `--profile load`: a test double for the outbound provider, with a
+  # dial for how badly it behaves. Deliberately not wired into `depends_on` —
+  # the service is supposed to survive this being absent, and a hard dependency
+  # would hide exactly the behaviour the load run exists to show.
+  risk:
+    profiles: [load]
+    # The application image, which already carries aiohttp through the
+    # `outbound` extra. Installing it at container start instead cost about ten
+    # seconds of the stub not listening, and the first load run blamed the
+    # resulting connection errors on the slow-provider scenario it was supposed
+    # to be measuring.
+    build:
+      context: .
+      target: runtime
+    volumes:
+      - ./tools/load:/opt/load:ro
+    command: ["python", "/opt/load/risk_provider.py"]
+    environment:
+      LATENCY_MS: ${RISK_LATENCY_MS:-5}
+      JITTER_MS: ${RISK_JITTER_MS:-0}
+      FAILURE_RATE: ${RISK_FAILURE_RATE:-0}
+      REFUSE_RATE: ${RISK_REFUSE_RATE:-0}
     restart: unless-stopped
 
   migrate:

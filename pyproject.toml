@@ -46,6 +46,9 @@ tracing = [
 docs = [
     "scalar-fastapi>=1.0",
 ]
+outbound = [
+    "aiohttp>=3.12",
+]
 
 [project.scripts]
 evenkeel-web = "evenkeel.entrypoints.web:main"

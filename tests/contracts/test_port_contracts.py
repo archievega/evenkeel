@@ -10,8 +10,11 @@ runs everywhere and gets stronger where a Redis is available.
 """
 
 import asyncio
+import importlib.util
 import os
 from collections.abc import AsyncIterator
+from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -23,18 +26,30 @@ from evenkeel.application.ports import (
     IdempotencyStore,
     RateLimiterPort,
     RateLimitPolicy,
+    RiskAssessmentPort,
+    RiskCheck,
+    RiskDecision,
+    RiskOutcome,
 )
+from evenkeel.domain.entities.ledger_entry import LedgerDirection
+from evenkeel.domain.value_objects.ids import OwnerId, WalletId
+from evenkeel.domain.value_objects.money import CurrencyCode, Money
 from evenkeel.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
 from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
 from evenkeel.infrastructure.adapters.memory.locking import (
     InMemoryDistributedLock,
     InMemoryRateLimiter,
 )
+from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.infrastructure.adapters.noop.risk import AllowAllRiskAssessment
 
 pytestmark = pytest.mark.contract
 
 REDIS_URL = os.getenv("TEST_REDIS_URL")
 requires_redis = pytest.mark.skipif(REDIS_URL is None, reason="TEST_REDIS_URL not set")
+requires_aiohttp = pytest.mark.skipif(
+    importlib.util.find_spec("aiohttp") is None, reason="requires the `outbound` extra"
+)
 
 
 async def _redis_client() -> object:
@@ -313,3 +328,73 @@ class TestBulkheadContract:
         async with bulkhead.acquire(self.policy(name="a", limit=1)) as first:  # noqa: SIM117
             async with bulkhead.acquire(self.policy(name="b", limit=1)) as second:
                 assert first.acquired and second.acquired
+
+
+# ---------------------------------------------------------------------------
+# RiskAssessmentPort
+#
+# Only two implementations exist and they share exactly one rule, but it is the
+# rule the whole port is built on: an implementation answers with a decision. It
+# does not raise. The `http` parameter is pointed at a closed port on purpose —
+# the worst case for the real adapter is the case most likely to throw.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(params=["allow-all", pytest.param("http", marks=requires_aiohttp)])
+async def risk_port(request: pytest.FixtureRequest) -> AsyncIterator[RiskAssessmentPort]:
+    if request.param == "allow-all":
+        yield AllowAllRiskAssessment()
+        return
+
+    from evenkeel.infrastructure.adapters.http.risk import open_http_risk_assessment
+    from evenkeel.infrastructure.adapters.http.transport import (
+        SessionPolicy,
+        TransportPolicy,
+    )
+
+    async with open_http_risk_assessment(
+        # Port 1 is reserved and nothing listens there, so this is a refused
+        # connection rather than a hang — a deterministic worst case.
+        base_url="http://127.0.0.1:1",
+        path="/decisions",
+        api_key="",
+        transport_policy=TransportPolicy(
+            service="risk", connect_timeout_ms=50, max_attempts=1, budget_ms=500
+        ),
+        session_policy=SessionPolicy(),
+        bulkhead=InMemoryBulkhead(),
+        metrics=NoopMetrics(),
+    ) as adapter:
+        yield adapter
+
+
+async def test_an_assessment_always_returns_a_decision(
+    risk_port: RiskAssessmentPort,
+) -> None:
+    decision = await risk_port.assess(
+        RiskCheck(
+            wallet_id=WalletId(uuid4()),
+            owner_id=OwnerId(uuid4()),
+            amount=Money(amount=Decimal("1.00"), currency=CurrencyCode("EUR")),
+            direction=LedgerDirection.DEBIT,
+        )
+    )
+
+    assert isinstance(decision, RiskDecision)
+
+
+async def test_an_unavailable_provider_is_never_reported_as_a_refusal(
+    risk_port: RiskAssessmentPort,
+) -> None:
+    """The one confusion that would corrupt every downstream number: a network
+    incident counted as fraud."""
+    decision = await risk_port.assess(
+        RiskCheck(
+            wallet_id=WalletId(uuid4()),
+            owner_id=OwnerId(uuid4()),
+            amount=Money(amount=Decimal("1.00"), currency=CurrencyCode("EUR")),
+            direction=LedgerDirection.DEBIT,
+        )
+    )
+
+    assert decision.outcome is not RiskOutcome.REFUSED

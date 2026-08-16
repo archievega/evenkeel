@@ -45,6 +45,7 @@ forbidden_modules =
     sqlalchemy
     fastapi
     redis
+    aiohttp
     dishka
     evenkeel.infrastructure
     evenkeel.presentation

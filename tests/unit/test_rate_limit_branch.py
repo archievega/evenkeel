@@ -23,7 +23,7 @@ from evenkeel.application.interactors.wallets import (
 )
 from evenkeel.domain.value_objects.ids import WalletId
 from evenkeel.domain.value_objects.money import Money
-from tests.fakes.system import DenyingRateLimiter
+from tests.fakes.system import DenyingRateLimiter, ScriptedRiskAssessment
 from tests.unit.test_wallet_movement import EUR, Harness
 
 
@@ -31,6 +31,7 @@ def deposit_interactor(harness: Harness) -> DepositToWalletInteractor:
     return DepositToWalletInteractor(
         movement=harness.service,
         rate_limiter=DenyingRateLimiter(),
+        risk=ScriptedRiskAssessment(),
         metrics=harness.service._metrics,
         settings=MoveMoneySettings(),
     )
@@ -40,6 +41,7 @@ def withdraw_interactor(harness: Harness) -> WithdrawFromWalletInteractor:
     return WithdrawFromWalletInteractor(
         movement=harness.service,
         rate_limiter=DenyingRateLimiter(),
+        risk=ScriptedRiskAssessment(),
         metrics=harness.service._metrics,
         settings=MoveMoneySettings(),
     )

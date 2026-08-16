@@ -2,11 +2,18 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from evenkeel.application.ports import (
+    BulkheadLease,
+    BulkheadPolicy,
+    BulkheadPort,
     DistributedLock,
     DistributedLockPort,
     RateLimitDecision,
     RateLimiterPort,
     RateLimitPolicy,
+    RiskAssessmentPort,
+    RiskCheck,
+    RiskDecision,
+    RiskOutcome,
 )
 
 
@@ -65,3 +72,51 @@ class DenyingRateLimiter(RateLimiterPort):
         self, *, key: str, policy: RateLimitPolicy, cost: int = 1
     ) -> RateLimitDecision:
         return RateLimitDecision(allowed=False, remaining=0, retry_after_seconds=42.0)
+
+
+class ScriptedRiskAssessment(RiskAssessmentPort):
+    """Answers whatever the test needs, and records what it was asked.
+
+    Lives beside the other fakes rather than in one test file: the risk branch
+    is exercised from unit tests, HTTP tests and the load-shedding tests, and
+    three private copies of this class is how they drift apart.
+    """
+
+    def __init__(self, decision: RiskDecision | None = None) -> None:
+        self.decision = decision or RiskDecision(outcome=RiskOutcome.ALLOWED)
+        self.calls: list[RiskCheck] = []
+
+    async def assess(self, check: RiskCheck) -> RiskDecision:
+        self.calls.append(check)
+        return self.decision
+
+    @classmethod
+    def refusing(cls, *, reference: str = "") -> "ScriptedRiskAssessment":
+        return cls(
+            RiskDecision(
+                outcome=RiskOutcome.REFUSED, reason="scripted", reference=reference
+            )
+        )
+
+    @classmethod
+    def unavailable(cls) -> "ScriptedRiskAssessment":
+        return cls(RiskDecision(outcome=RiskOutcome.UNAVAILABLE, reason="scripted"))
+
+
+class _RefusedLease(BulkheadLease):
+    @property
+    def acquired(self) -> bool:
+        return False
+
+    async def __aenter__(self) -> BulkheadLease:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+
+class FullBulkhead(BulkheadPort):
+    """Every slot is taken -- the shed branch, without having to fill it."""
+
+    def acquire(self, policy: BulkheadPolicy) -> BulkheadLease:
+        return _RefusedLease()

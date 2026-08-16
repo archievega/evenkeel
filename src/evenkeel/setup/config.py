@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 LOCAL = "local"
 DEV_IDENTITY = "dev"
+ALLOW_ALL_RISK = "allow-all"
+HTTP_RISK = "http"
 
 # nosec B105 — the opposite of a hardcoded credential. This is the sentinel the
 # boot check compares against: seeing it means nobody supplied a secret, and the
@@ -124,6 +126,87 @@ class RedisConfig(BaseModel):
         return bool(self.url.get_secret_value())
 
 
+class MovementPolicyConfig(BaseModel):
+    """Policy for balance changes, in configuration rather than in code.
+
+    These were literals inside `MoveMoneySettings` with no way to reach them
+    from the outside, which is the sort of default that survives until the first
+    incident and is then changed by a deploy of the application. A limit that
+    cannot be tuned without a release is not a control, it is a constant.
+    """
+
+    rate_limit_enabled: bool = True
+    # Per owner, not per IP. An IP is shared by a corporate NAT and rented by
+    # anyone who wants a second one; the owner id is the thing being protected.
+    rate_limit_limit: int = 30
+    rate_limit_window_seconds: float = 60.0
+    risk_fail_open: bool = False
+
+
+class OutboundHttpConfig(BaseModel):
+    """How this service calls someone else's.
+
+    Defaults are deliberately impatient. A dependency on the request path gets
+    one retry and a budget under two seconds, because the alternative — a
+    generous timeout that "gives it a chance" — converts the provider's bad day
+    into this service's outage, one held connection at a time.
+    """
+
+    total_timeout_ms: int = 800
+    connect_timeout_ms: int = 200
+    read_timeout_ms: int = 700
+    # Wall clock for the whole call including retries and backoff. This, not
+    # the per-attempt timeout, is the number to quote when someone asks what
+    # the worst case is.
+    budget_ms: int = 1_500
+    max_attempts: int = 2
+    backoff_base_ms: int = 50
+    backoff_max_ms: int = 400
+    max_response_bytes: int = 64 * 1024
+    # Concurrent calls allowed in flight. Sized against the database pool, not
+    # against the provider: the number that matters is how many request-scoped
+    # connections may be parked waiting on someone else's service.
+    bulkhead_limit: int = 32
+    # Zero means refuse immediately rather than queue. Queueing for a slot is
+    # the failure mode a bulkhead exists to prevent.
+    bulkhead_wait_ms: int = 0
+    circuit_failure_threshold: int = 5
+    circuit_reset_ms: int = 10_000
+    connection_limit: int = 64
+    dns_cache_seconds: int = 30
+    # Off by default: HTTP_PROXY in the environment silently rerouting outbound
+    # traffic is a supply-chain risk, not a feature.
+    trust_env: bool = False
+
+
+class RiskConfig(BaseModel):
+    """The one external decision on the money path.
+
+    `allow-all` is the default so the template runs with no vendor account.
+    Setting `provider=http` and a `base_url` is the whole switch.
+
+    `fail_open` is the question this config exists to make someone answer: when
+    the provider cannot be reached, does money move unchecked or does it stop?
+    Closed by default — an unverified movement is permanent, and a 503 is not.
+    """
+
+    provider: str = ALLOW_ALL_RISK
+    base_url: str = ""
+    path: str = "/decisions"
+    api_key: SecretStr = SecretStr("")
+    fail_open: bool = False
+    http: OutboundHttpConfig = Field(default_factory=OutboundHttpConfig)
+
+    @model_validator(mode="after")
+    def _http_needs_a_destination(self) -> "RiskConfig":
+        # Caught at load time rather than on the first movement. A misconfigured
+        # provider that only announces itself under traffic is a deploy that
+        # looks successful and is not.
+        if self.provider == HTTP_RISK and not self.base_url:
+            raise ValueError("risk.base_url is required when risk.provider is 'http'")
+        return self
+
+
 class ObservabilityConfig(BaseModel):
     metrics_enabled: bool = False
     tracing_enabled: bool = False
@@ -142,6 +225,8 @@ class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    risk: RiskConfig = Field(default_factory=RiskConfig)
+    movements: MovementPolicyConfig = Field(default_factory=MovementPolicyConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 
@@ -178,4 +263,13 @@ def production_config_problems(settings: Settings) -> list[str]:
         problems.append("app.secret_key is empty or still the public default")
     if settings.database.password.get_secret_value() in {"", "evenkeel", "postgres"}:
         problems.append("database.password is empty or a well-known default")
+    if settings.risk.provider == HTTP_RISK and settings.risk.base_url.startswith(
+        "http://"
+    ):
+        # Not pedantry: this request carries an owner id, an amount and a bearer
+        # token to a third party. Plaintext makes all three readable by every
+        # hop in between, and the token replayable.
+        problems.append(
+            "risk.base_url is plaintext http, and the request carries a token"
+        )
     return problems

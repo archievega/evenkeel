@@ -761,6 +761,17 @@
             },
             "description": "No credential was supplied, or it was not a valid owner id."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Risk assessment refused the movement. Nothing changed, and retrying with the same payload will be refused again. `details.reference` is the provider's id for the decision, for a support conversation."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -991,6 +1002,17 @@
               "application/problem+json": {}
             },
             "description": "No credential was supplied, or it was not a valid owner id."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Risk assessment refused the movement. Nothing changed, and retrying with the same payload will be refused again. `details.reference` is the provider's id for the decision, for a support conversation."
           },
           "404": {
             "content": {

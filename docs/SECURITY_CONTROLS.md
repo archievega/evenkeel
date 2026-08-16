@@ -66,6 +66,15 @@ naming the weakness makes the intent legible to a reviewer who knows it.
 | Secrets are scanned across full history, not just the tip | CI `security` job | gitleaks over `fetch-depth: 0` | 532 |
 | Dependencies are audited and statically analysed | CI `security` job | `pip-audit`, `bandit` | [1395](https://cwe.mitre.org/data/definitions/1395.html) |
 | Layer boundaries cannot be crossed | [`.importlinter`](../.importlinter) | CI `lint-imports`, 3 contracts | — |
+| An outbound call cannot hang: every attempt is bounded, and the whole call including retries is bounded by a budget | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py) | `test_a_timeout_is_a_failure_value_not_an_exception`, `test_the_budget_bounds_the_worst_case` | [1088](https://cwe.mitre.org/data/definitions/1088.html) |
+| A slow or dead dependency is shed rather than accumulated: concurrency is capped and the circuit opens | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py), [`http/circuit.py`](../src/evenkeel/infrastructure/adapters/http/circuit.py) | `test_a_full_bulkhead_refuses_without_calling_the_provider`, `test_the_circuit_opens_and_then_costs_nothing`, `tools/load/README.md` runs B–D | [770](https://cwe.mitre.org/data/definitions/770.html) |
+| An outbound response cannot exhaust memory: the body is read to a cap, not to completion | [`http/transport.py`](../src/evenkeel/infrastructure/adapters/http/transport.py) | `test_an_oversized_body_is_refused_rather_than_read` | [400](https://cwe.mitre.org/data/definitions/400.html) |
+| A provider response this code cannot parse is never read as approval | [`http/risk.py`](../src/evenkeel/infrastructure/adapters/http/risk.py) | `test_an_unrecognised_decision_is_not_permission` | [754](https://cwe.mitre.org/data/definitions/754.html) |
+| The outbound destination comes from configuration and is never taken from a request; proxy environment variables are ignored unless asked for | [`setup/config.py`](../src/evenkeel/setup/config.py), [`http/risk.py`](../src/evenkeel/infrastructure/adapters/http/risk.py) | `trust_env=False` by default; `risk.base_url` is not reachable from any handler | [918](https://cwe.mitre.org/data/definitions/918.html) |
+| A plaintext `http://` risk endpoint is refused in production, because the request carries an owner id, an amount and a bearer token | [`setup/config.py`](../src/evenkeel/setup/config.py) | `production_config_problems` | [319](https://cwe.mitre.org/data/definitions/319.html) |
+| A risk refusal does not tell the caller which rule fired | [`interactors/wallets/move_money.py`](../src/evenkeel/application/interactors/wallets/move_money.py) | `test_a_refusal_does_not_say_which_rule_fired` | [209](https://cwe.mitre.org/data/definitions/209.html) |
+| Metric labels are a closed set: route templates and enum outcomes, never ids | [`prometheus/metrics.py`](../src/evenkeel/infrastructure/adapters/prometheus/metrics.py) | `test_the_handler_label_is_a_route_template_not_a_path` | [770](https://cwe.mitre.org/data/definitions/770.html) |
+| An APP-scoped client is closed at shutdown rather than left to the garbage collector | [`ioc/providers/core.py`](../src/evenkeel/setup/ioc/providers/core.py) | every Redis provider yields through `_redis_client`; the aiohttp session is owned by `open_http_risk_assessment` | [404](https://cwe.mitre.org/data/definitions/404.html) |
 | An adapter cannot drift from the port it is bound to | [`adapters/conformance.py`](../src/evenkeel/infrastructure/adapters/conformance.py) | CI `mypy` | — |
 
 ## Known gaps
@@ -88,6 +97,19 @@ were broken:
   This predates the pure-ASGI rewrite; the ordering is the same either way.
 - `DenyingRateLimiter` had been sitting in `tests/fakes/system.py` used by
   nothing, so the interactor's rate-limit branch had never executed in a test.
+
+Closed by the outbound slice (2026-08-16):
+
+- `MetricsPort.observe_external_call` had one no-op implementation and no
+  caller: a metric that could not be seen. A load run made this concrete —
+  `bulkhead_full`, `timeout` and `circuit_open` all reach the client as the same
+  503, and two runs were interpreted wrongly before the Prometheus adapter
+  existed. See `tools/load/README.md`.
+- Four Redis clients were constructed by DI providers that `return`ed rather
+  than `yield`ed, so nothing closed them at shutdown.
+- The movement rate limit was a literal in application code with no way to reach
+  it from configuration. A limit that needs a release to change is not a
+  control.
 
 Open:
 
