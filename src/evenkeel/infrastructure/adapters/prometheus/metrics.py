@@ -15,9 +15,35 @@ from evenkeel.application.ports import MetricsPort
 
 # Buckets chosen for this service rather than inherited from the library
 # default, which starts at 5ms and is mostly wasted on an API where a fast
-# response is already 10ms. The tail matters more than the head here: the
-# interesting question is how many calls sat near the timeout.
-_REQUEST_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+# response is already 10ms.
+#
+# The boundaries at 0.8 and 1.5 are the outbound per-attempt timeout and the
+# overall budget, because that is where this service's slow requests actually
+# pile up — just under one guard or the other.
+#
+# Putting them there is the whole point, and the first version did not. It went
+# 0.5, 1.0, 2.5, so the entire tail landed in one bucket a second and a half
+# wide. `histogram_quantile` interpolates linearly inside a bucket, so it
+# reported p99 = 2.32s on a run whose slowest request k6 measured at 1.70s
+# client-side — an estimate larger than anything that happened. A histogram is
+# only as honest as its boundaries, and a wide bucket does not read as
+# uncertainty, it reads as a number.
+_REQUEST_BUCKETS = (
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    0.8,
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    5.0,
+    10.0,
+)
 _OUTBOUND_BUCKETS = (0.01, 0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 3.0, 10.0)
 
 

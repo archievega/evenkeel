@@ -46,6 +46,33 @@ offers *more* load to a server that answers faster, which made an early run
 report fast shedding as worse than slow success. Two runs are only comparable if
 the offered load is the same.
 
+## The provider's latency is the whole story
+
+Same code, same 200 writes/s + 50 reads/s, same 40 wallets. Only the stub's
+dials moved, and `p95` for writes moved with them:
+
+| provider | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| none at all (the `allow-all` null adapter) | 4.6 ms | 32 ms | 87 ms |
+| 20 ms — an ordinary healthy dependency | 26 ms | 101 ms | 548 ms |
+| 700 ms — the profile behind the README screenshot | 0.8 ms | 1.43 s | 1.45 s |
+
+The third row is not this service being slow. A 700 ms provider behind a cap of
+32 completes roughly `32 / 1.5s ≈ 21` calls a second once a retry is counted,
+against 200 offered — so nine in ten are shed in under a millisecond, which is
+why the *median* is 0.8 ms, and the ones that get a slot run out the 1500 ms
+budget. `p95 = 1.43 s` is the budget, not the work.
+
+**And the first row is not a latency benchmark either.** Two identical runs of
+it gave `p95` 32 ms and 54 ms, `p99` 87 ms and 154 ms — a factor of two between
+runs that differed in nothing, on a laptop where Postgres, the API and k6 share
+the same cores. Raising the wallet count from 40 to 400 made `p99` *worse*
+rather than better, which rules out row-lock contention as the explanation and
+leaves "this is a noisy measurement of a noisy machine".
+
+Quote these numbers as evidence about the guards. Do not quote them as evidence
+about the code.
+
 ## What the runs found
 
 200 write rps + 50 read rps for 20s, 40 wallets. Reads never touch the provider;

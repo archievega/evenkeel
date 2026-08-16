@@ -188,3 +188,32 @@ def test_no_target_label_collides_with_a_label_the_application_emits() -> None:
     assert not configured & emitted, (
         f"scrape labels shadow application labels: {sorted(configured & emitted)}"
     )
+
+
+def test_the_latency_buckets_sit_on_the_timeouts_that_shape_them() -> None:
+    """A histogram interpolates linearly inside a bucket, so a bucket wider than
+    the behaviour it holds reports a number nothing measured.
+
+    That shipped. The boundaries went `0.5, 1.0, 2.5`, the entire slow tail of a
+    degraded-provider run landed in the one bucket a second and a half wide, and
+    the dashboard reported p99 = 2.32s for a run whose slowest request k6
+    measured at 1.70s client-side — an estimate above every request that
+    happened, on a panel that looked perfectly reasonable.
+
+    Slow requests pile up just under one guard or the other, so the boundaries
+    belong on the guards. This fails if someone retunes the transport and leaves
+    the buckets where they were.
+    """
+    from evenkeel.infrastructure.adapters.http.transport import TransportPolicy
+    from evenkeel.infrastructure.adapters.prometheus.metrics import _REQUEST_BUCKETS
+
+    policy = TransportPolicy(service="risk")
+
+    for name, ms in (
+        ("per-attempt timeout", policy.total_timeout_ms),
+        ("overall budget", policy.budget_ms),
+    ):
+        assert ms / 1000 in _REQUEST_BUCKETS, (
+            f"no bucket boundary at the {name} ({ms}ms), so every request that "
+            f"stops there is estimated by interpolation across the gap"
+        )
