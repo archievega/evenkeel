@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 from evenkeel.application.errors import ApplicationError, ApplicationErrorCode
 from evenkeel.domain.errors import DomainError, DomainErrorCode
 from evenkeel.logging import allowlisted, get_logger
+from evenkeel.presentation.http.middleware import (
+    CORRELATION_HEADER,
+    CORRELATION_SCOPE_KEY,
+)
 
 log = get_logger(__name__)
 
@@ -48,12 +52,39 @@ def problem(
         "code": code,
         "instance": request.url.path,
     }
-    correlation_id = structlog.contextvars.get_contextvars().get("correlation_id")
+    correlation_id = _correlation_id(request)
     if correlation_id:
         body["correlation_id"] = correlation_id
     if details:
         body["details"] = details
-    return JSONResponse(status_code=status, content=body, media_type=PROBLEM_CONTENT_TYPE)
+
+    # The header is set here as well as in the middleware, and the duplication is
+    # load-bearing. An unhandled exception is rendered by ServerErrorMiddleware,
+    # which writes the response through its own `send` — outside the wrapper that
+    # normally injects this header. Without this, the header is present on every
+    # response except the ones a user is most likely to report.
+    headers = {CORRELATION_HEADER: correlation_id} if correlation_id else None
+    return JSONResponse(
+        status_code=status,
+        content=body,
+        media_type=PROBLEM_CONTENT_TYPE,
+        headers=headers,
+    )
+
+
+def _correlation_id(request: Request) -> str | None:
+    """Scope first, ambient context second.
+
+    The catch-all handler runs outside the middleware that owns the context, so
+    contextvars are empty by then; the scope value survives. The contextvars
+    fallback keeps this working for any code path that builds a problem
+    document without having gone through the middleware.
+    """
+    from_scope = request.scope.get(CORRELATION_SCOPE_KEY)
+    if isinstance(from_scope, str):
+        return from_scope
+    from_context = structlog.contextvars.get_contextvars().get("correlation_id")
+    return from_context if isinstance(from_context, str) else None
 
 
 def setup_error_handlers(app: FastAPI) -> None:
@@ -116,10 +147,13 @@ def setup_error_handlers(app: FastAPI) -> None:
         # The internal message never reaches the client: stack traces and driver
         # errors disclose schema and topology. The correlation id in the response
         # is what ties the user's report to this log line.
+        # The id is passed explicitly for the same reason: by the time this runs
+        # the contextvars processor has nothing left to merge.
         log.error(
             "unhandled_exception",
             error_type=type(exc).__name__,
             path=request.url.path,
+            correlation_id=_correlation_id(request),
             exc_info=True,
         )
         return problem(

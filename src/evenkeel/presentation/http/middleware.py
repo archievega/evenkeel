@@ -11,6 +11,7 @@ log = get_logger(__name__)
 
 CORRELATION_HEADER = "X-Correlation-ID"
 _CORRELATION_HEADER_BYTES = CORRELATION_HEADER.lower().encode()
+CORRELATION_SCOPE_KEY = "evenkeel.correlation_id"
 
 
 class ObservabilityMiddleware:
@@ -44,6 +45,14 @@ class ObservabilityMiddleware:
             return
 
         correlation_id = _inbound_correlation_id(scope) or str(uuid.uuid4())
+        # Also on the scope, not only in contextvars. Starlette installs the
+        # catch-all `Exception` handler on ServerErrorMiddleware, which is the
+        # OUTERMOST layer — so an unhandled exception is rendered after this
+        # middleware's `finally` has already cleared the context. Anything that
+        # reads the id from contextvars gets nothing on exactly the responses
+        # where the id matters most. The scope belongs to the request and no
+        # other layer can wipe it.
+        scope[CORRELATION_SCOPE_KEY] = correlation_id
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             correlation_id=correlation_id,
