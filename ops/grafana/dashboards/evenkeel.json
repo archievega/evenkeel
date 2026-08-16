@@ -1,0 +1,787 @@
+{
+  "uid": "evenkeel-service",
+  "title": "evenkeel \u2014 service",
+  "description": "Which guard fired, and what it cost.",
+  "tags": [
+    "evenkeel"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**A client sees `503` whether the outbound call timed out, was shed by the concurrency cap, or ran out of retry budget.**\nThe second row separates them, and that is what this dashboard is for \u2014 the first and third rows are ordinary RED panels that\nany service has.\n\nEmpty panels mean no traffic, not a broken stack: metrics are off unless `APP__OBSERVABILITY__METRICS_ENABLED=true`.\nTo fill it, run the load profile in [tools/load/README.md](https://github.com/) \u2014 one command, twenty seconds."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "Requests",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Request rate by status",
+      "description": "Every response the service produced, including the refusals \u2014 409, 422 and 429 are answers, not failures.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 0,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (status) (rate(evenkeel_http_requests_total[1m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Request latency",
+      "description": "Buckets top out at 10s, so a p99 pinned at 10 means 'at least', not 'exactly'.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 9,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(evenkeel_http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p99",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(evenkeel_http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(evenkeel_http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p50",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "In flight",
+      "description": "Concurrency actually being served. Climbing while throughput is flat is the shape of a stall.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "evenkeel_http_requests_in_flight",
+          "legendFormat": "in flight",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Which guard fired",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Outbound calls by outcome",
+      "description": "`timeout` and `connection` are the provider. `bulkhead_full` and `budget_exhausted` are this service refusing to queue behind it. `malformed`, `oversized` and `redirected` mean the provider answered with something that was never a decision \u2014 and none of the three is read as approval.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (outcome) (rate(evenkeel_external_call_total[1m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Outbound latency p99",
+      "description": "Includes retries and the wait for a bulkhead slot: what the use case paid, not what the socket did.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(evenkeel_external_call_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{service}} p99",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le, service) (rate(evenkeel_external_call_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{service}} p50",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Contention",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Rate limiter decisions",
+      "description": "`denied` is per owner, never per IP \u2014 an IP is shared by a corporate NAT and rented by anyone who wants another.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (policy, decision) (rate(evenkeel_rate_limit_total[1m]))",
+          "legendFormat": "{{policy}} {{decision}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Lock outcomes",
+      "description": "`timeout` here is a caller who waited for a wallet and gave up, which surfaces as 409 rather than a wrong balance.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (name, outcome) (rate(evenkeel_lock_total[1m]))",
+          "legendFormat": "{{name}} {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Lock wait p99",
+      "description": "Sustained above a second means the write path is serialised on one row.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(evenkeel_lock_wait_seconds_bucket[1m])))",
+          "legendFormat": "{{name}} p99",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Use cases",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Interactor outcomes",
+      "description": "`risk_refused` and `risk_unavailable` are deliberately separate series: one is a decision, the other is the absence of one, and merging them is how a broken provider starts looking like a fraud wave.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (name, outcome) (rate(evenkeel_interactor_total[1m]))",
+          "legendFormat": "{{name}} {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Interactor latency p99",
+      "description": "Time inside the use case, excluding serialisation and middleware.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, name) (rate(evenkeel_interactor_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Faults",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Unhandled exceptions",
+      "description": "Only exceptions no handler caught. Any line here at all is a bug, which is why the alert threshold is zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum by (handler, exception) (rate(evenkeel_http_request_failures_total[1m]))",
+          "legendFormat": "{{handler}} {{exception}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "5xx share of requests",
+      "description": "Flat and empty on an idle service: 0/0 is NaN, and NaN is not a spike.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "evenkeel-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "evenkeel-prometheus"
+          },
+          "expr": "sum(rate(evenkeel_http_requests_total{status=~\"5..\"}[1m])) / sum(rate(evenkeel_http_requests_total[1m]))",
+          "legendFormat": "5xx share",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

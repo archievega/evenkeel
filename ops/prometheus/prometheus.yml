@@ -1,0 +1,29 @@
+# Scrape settings for a local run, not for production. A five-second interval
+# is far too aggressive for a real deployment and exactly right here: a load run
+# lasts twenty seconds, and at the usual fifteen-second interval it produces
+# barely more than one point per series.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: evenkeel
+    metrics_path: /metrics
+    static_configs:
+      # `up{job="evenkeel"}` is what the first alert watches, and it exists
+      # whether or not the application has ever served a request.
+      #
+      # Deliberately no extra labels here. A `service: evenkeel` label seemed
+      # harmless and collided with the application's own `service` label, which
+      # names the *dependency* being called: Prometheus keeps the target's
+      # value and renames the real one to `exported_service`. Every query
+      # grouping by `service` then groups by a constant, so the outbound panels
+      # drew one line labelled "evenkeel" however many providers there were.
+      - targets: [api:8000]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]

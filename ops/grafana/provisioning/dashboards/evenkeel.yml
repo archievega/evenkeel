@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: evenkeel
+    type: file
+    # Editable in the UI, and edits are lost on restart — the file on disk is
+    # the dashboard. A dashboard that only exists in Grafana's database is one
+    # `docker compose down -v` from gone, and cannot be reviewed in a diff.
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

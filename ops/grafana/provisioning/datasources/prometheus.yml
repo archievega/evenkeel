@@ -1,0 +1,15 @@
+# Provisioned, so the stack comes up ready. Clicking through "add a data
+# source" is the step where a dashboard export from someone else's machine
+# stops working, because the panels reference a datasource UID that only
+# existed there.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: evenkeel-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s
