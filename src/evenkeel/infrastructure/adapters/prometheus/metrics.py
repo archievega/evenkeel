@@ -1,16 +1,12 @@
 """The real `MetricsPort`, behind the `metrics` extra.
 
 Written when a load run turned out to be unreadable without it: the bulkhead
-shedding a request, the provider timing out, and a retry budget running out all
-reach the client as the same 503, and no amount of staring at the client-side
-summary can tell them apart. `observe_external_call` had been an abstract method
-with one no-op implementation and no caller — a metric nobody could see.
+shedding a request, a timeout, and an exhausted retry budget all reach the
+client as the same 503. See tools/load/README.md.
 
-Every label here is a closed set. `handler` is a route template, `outcome` comes
-from an enum, `service` and `operation` are constants in the call site. Nothing
-derived from a request body or an id ever reaches a label: each distinct value
-is a new time series, and unbounded labels are the standard way to take a
-Prometheus instance down.
+Every label is a closed set — route templates and enum outcomes, never an id.
+Each distinct value is a time series, and unbounded labels are the standard way
+to take a Prometheus instance down.
 """
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram

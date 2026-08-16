@@ -1,19 +1,13 @@
 """Static proof that each adapter still satisfies the port it is bound to.
 
 The DI container binds an implementation to a `Protocol` at runtime, so nothing
-type-checks the pairing: an adapter whose signature drifts from its port passes
-lint, passes `mypy`, passes every test that uses a fake -- and raises
-``TypeError`` on the first real call in production.
+type-checks the pairing: a drifted adapter passes lint, passes mypy, passes
+every test that uses a fake, and raises `TypeError` on the first real call.
 
-These annotations are the missing check. They cost nothing at runtime and turn
-that drift into a type error at the moment it is introduced. Add one line here
-whenever an adapter is bound to a port in `setup/ioc`.
-
-Forgetting to is not a hypothetical: three adapters written in one afternoon —
-`AllowAllRiskAssessment`, `HttpRiskAssessment`, `PrometheusMetrics` — were all
-missing from this file, which is what a convention nothing enforces looks like
-after a busy day. `tests/unit/test_adapter_conformance.py` now enumerates every
-implementation of an abstract port and fails when one is not named here.
+Add one line here whenever an adapter is bound to a port in `setup/ioc`.
+Forgetting is not hypothetical, so it is also a test —
+`tests/unit/test_adapter_conformance.py` fails when an implementation of an
+abstract port is not named below.
 """
 
 from typing import TYPE_CHECKING

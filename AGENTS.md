@@ -142,6 +142,30 @@ Each of these cost real debugging time here. Do not re-introduce them.
 | A metric labelled `error` for an ordinary conflict | `outcome` initialised to `"error"` and only overwritten on success | label by the error code |
 | A load run that measures the rate limiter | 30 movements/owner/minute by default | raise `RATE_LIMIT` for the run, do not work around it in the script |
 | Logs corrupt an stdio protocol | `setup_logging` writes to stdout, which `evenkeel-mcp` uses for JSON-RPC | pass `stream=sys.stderr` |
+| A comment quotes a number nobody can reproduce | it was measured once, by hand, and the code moved | regenerate it from a committed tool, or delete the number |
+
+## Comments
+
+The research is unkind to the obvious instinct here: in ablations, comments are
+worth between nothing and slightly negative to a model, *except* the ones that
+explain a decision — and misleading ones measurably degrade output, because a
+model internalises them rather than ignoring them. Every line is also read on
+every visit, out of a finite attention budget.
+
+So:
+
+| | |
+| --- | --- |
+| **Write** | the constraint that is not derivable from the code: an alternative that was tried and failed, an external contract, "do the obvious thing here and X breaks" |
+| **Do not write** | what the code already says; the story of how the code got here; a measured number that no committed tool reproduces |
+| **Move out** | the long argument → `docs/adr/`, with a one-line pointer in the file; a rule that spans files → this document **and a check**, because a comment in one file is invisible to somebody editing another |
+
+Module docstrings stay near ten lines. If the reasoning needs more, it is an
+ADR, and the file gets a pointer to it.
+
+The last row is not theory. `conformance.py` carried its rule in a comment for
+weeks and three adapters were added without it; the comment did nothing and a
+test caught them the same afternoon it was written.
 
 ## Stop and ask a human
 

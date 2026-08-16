@@ -1,22 +1,12 @@
-"""Everything an outbound HTTP call needs to be safe, in one place.
+"""Everything an outbound HTTP call needs to be safe, on plain aiohttp.
 
-Written on plain `aiohttp` rather than a resilience framework, because the
-interesting part of this file is not the code — it is the list of decisions,
-and a framework would hide exactly the ones a reviewer should be arguing with.
+In the order they apply: a bulkhead that refuses rather than queues, a
+per-attempt timeout and an overall budget, retries only where they can succeed,
+and a response size cap. Nothing raises — the caller gets a `JsonResponse` with
+a `failure` to branch on.
 
-The guarantees, in the order they apply to a call:
-
-1. **A bulkhead**, so a slow or failing provider cannot accumulate unbounded
-   in-flight calls, and a caller who cannot be served is refused immediately
-   rather than queued behind one who also will not be.
-2. **A per-attempt timeout and an overall budget**, so the worst case is a
-   number someone chose rather than the sum of whatever the retries felt like.
-3. **Retries only where they are safe**, with full jitter, honouring
-   `Retry-After`.
-4. **A response size cap**, so a broken or hostile upstream cannot spend this
-   process's memory.
-5. **Failures as values.** Nothing here raises; the caller gets a `JsonResponse`
-   with a `failure` it can branch on.
+There is no circuit breaker; it was built twice, measured, and removed. Both
+that and the guard settings: docs/adr/0006-outbound-calls.md.
 """
 
 import asyncio

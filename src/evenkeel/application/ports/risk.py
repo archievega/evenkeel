@@ -1,29 +1,14 @@
 """The one outbound call on the money path.
 
-Every other port in this package hides a piece of infrastructure the process
-owns: its database, its Redis, its clock. This one hides a *service someone else
-operates* — which is a different kind of dependency and fails in ways the others
-do not. It can be slow rather than down. It can answer correctly and late. It
-can be up while the network to it is not. It can change its response schema on a
-Tuesday without telling you.
+Unlike every other port here, this hides a service somebody else operates: it
+can be slow rather than down, and answer correctly but late. Hence the shapes
+below. Reasoning: docs/adr/0006-outbound-calls.md.
 
-Three consequences visible in the shapes below.
-
-**Unavailability is a value, not an exception.** `RiskOutcome.UNAVAILABLE` sits
-beside `ALLOWED` and `REFUSED` because "the check could not run" is an ordinary
-operational state that the caller must have a policy for, not an accident to be
-caught several frames up by whoever happens to have a `try`. The same reasoning
-as `DistributedLock.acquired` and `BulkheadLease.acquired`.
-
-**Refused and unavailable are never merged.** They mean opposite things: one is
-the provider working, the other is the provider missing. An adapter that
-returns "refuse" when it times out has invented a decision, and every dashboard
-downstream will report a fraud spike during a network incident.
-
-**The port says nothing about HTTP.** No status codes, no headers, no retry
-count. Those live in the adapter, so the application can be tested against a
-decision table and the transport can be replaced by gRPC, a queue, or a local
-model without a single change above this line.
+* Unavailability is a value, not an exception — the caller needs a policy for
+  it, not a `try` several frames up.
+* `REFUSED` and `UNAVAILABLE` never merge. An adapter that reports a timeout as
+  a refusal turns a network incident into a fraud spike on every dashboard.
+* No HTTP in the signatures, so the transport can change without the caller.
 """
 
 from abc import ABC, abstractmethod

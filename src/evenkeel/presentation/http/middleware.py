@@ -19,16 +19,19 @@ CORRELATION_SCOPE_KEY = "evenkeel.correlation_id"
 class ObservabilityMiddleware:
     """Correlation id, request log and request metrics in one pass.
 
-    Written as pure ASGI rather than `BaseHTTPMiddleware`, and the difference is
-    not academic. `BaseHTTPMiddleware` runs the downstream app in a task pair
-    joined by an anyio memory stream so it can hand you `Request`/`Response`
-    objects; across runs that machinery cost **55-65% of throughput** on a
-    trivial endpoint, against **1-3%** for the version below. Reproduce with
-    `tools/bench_middleware.py` rather than taking the number on faith.
+    Written as pure ASGI rather than `BaseHTTPMiddleware`, which runs the
+    downstream app in a task pair joined by an anyio memory stream so it can
+    hand you `Request`/`Response` objects. On a trivial endpoint, for identical
+    work: **56% of throughput against 4%**.
 
-    The relative cost shrinks once a handler does real I/O, but it is paid on
-    every request by every endpoint forever, and avoiding it costs only the mild
-    inconvenience of handling raw ASGI messages.
+    This class then costs **~28%** of its own, because of what it does — a uuid,
+    contextvars, route-pattern matching, metrics, and a log line, of which the
+    log line is about 5 points. That is the number to quote, and the earlier
+    version of this docstring quoted the 4% instead, which described a stand-in
+    the benchmark measured rather than the class that ships.
+
+    `tools/bench_middleware.py` produces all four rows. The endpoint is trivial,
+    so these are an upper bound: a handler that touches a database dwarfs them.
 
     The id is taken from the inbound header when present so a trace survives
     across services, and echoed back so a user can quote it in a bug report.

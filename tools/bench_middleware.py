@@ -1,18 +1,25 @@
-"""Measure what a middleware base class costs.
+"""Measure what the middleware costs, including the one that ships.
 
 Run: `uv run python tools/bench_middleware.py`
 
-This exists because the repo makes a claim in `presentation/http/middleware.py`
-about why it is written as pure ASGI. A claim about performance that nobody can
-reproduce is marketing; this is the receipt.
+Four rows, and the fourth is the one that matters. The first three isolate the
+*base class* — a toy that appends a header, written twice, once on
+`BaseHTTPMiddleware` and once as pure ASGI. The fourth runs the real
+`ObservabilityMiddleware`: uuid, contextvars, route-pattern matching, metrics
+and a log line per request.
 
-The endpoint is deliberately trivial, so the numbers are an upper bound on the
-relative cost — a handler that touches a database dwarfs it. That is the point:
-this is the floor of overhead you pay on every request regardless of what the
-handler does.
+The first version of this file stopped at the toy and the docstring in
+`middleware.py` quoted its number as if it described the shipped class. It did
+not, by a factor of ten. A benchmark that measures a stand-in is the same
+failure as a claim with no benchmark at all, with more ceremony.
+
+The endpoint is trivial, so these are an upper bound on relative cost — a
+handler that touches a database dwarfs it. That is the point: this is the floor
+paid on every request regardless of what the handler does.
 """
 
 import asyncio
+import os
 import statistics
 import time
 
@@ -20,6 +27,10 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.logging import setup_logging
+from evenkeel.presentation.http.middleware import ObservabilityMiddleware
 
 
 class BaseHTTPVersion(BaseHTTPMiddleware):
@@ -53,7 +64,11 @@ def build(mw):
     async def health():
         return {"status": "alive"}
 
-    if mw:
+    if mw is ObservabilityMiddleware:
+        # The shipped class needs its port. `NoopMetrics` keeps the call sites
+        # real while measuring none of Prometheus's own cost.
+        app.add_middleware(mw, metrics=NoopMetrics())
+    elif mw:
         app.add_middleware(mw)
     return app
 
@@ -71,16 +86,28 @@ async def main():
     results = {}
     for name, mw in (
         ("none", None),
-        ("BaseHTTPMiddleware", BaseHTTPVersion),
-        ("pure ASGI", PureASGIVersion),
+        ("BaseHTTPMiddleware (toy)", BaseHTTPVersion),
+        ("pure ASGI (toy)", PureASGIVersion),
+        ("ObservabilityMiddleware", ObservabilityMiddleware),
     ):
         runs = [await measure(build(mw)) for _ in range(3)]
         results[name] = statistics.median(runs)
     base = results["none"]
     for name, rps in results.items():
         print(
-            f"{name:22} {rps:8.0f} rps   overhead vs none: {(base - rps) / base * 100:5.1f}%"
+            f"{name:26} {rps:8.0f} rps   "
+            f"overhead vs none: {(base - rps) / base * 100:5.1f}%"
         )
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    # Guarded, because importing this module used to run the whole benchmark —
+    # found while importing `measure()` to answer a follow-up question, which is
+    # the only way anyone would ever notice.
+    #
+    # The shipped middleware writes a log line per request, and that cost is real
+    # in production. Sent to /dev/null rather than suppressed, so the formatting
+    # is paid for and the terminal stays readable.
+    with open(os.devnull, "w") as sink:
+        setup_logging(level="INFO", json_logs=True, stream=sink)
+        asyncio.run(main())

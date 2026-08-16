@@ -1,32 +1,14 @@
-"""The same use cases, over a second transport.
+"""The wallet as MCP tools, over the same interactors the HTTP router uses.
 
-This package exists to make one claim checkable rather than decorative. Ports
-and adapters is easy to describe and easy to fake — a codebase can have the
-directory names and still be a framework wrapped in ceremony. The test is
-whether a second transport can be bolted on without touching anything below it.
+Adding this changed nothing below `presentation` — no port, no command, no
+branch in a use case — which is the only way to show the layering is real
+rather than decorative. Reasoning: docs/adr/0007-mcp-as-a-second-transport.md.
 
-So: not one line of `application` or `domain` changed to add this file. The
-tools below open a request scope, resolve the *identical* interactor the HTTP
-router resolves, and translate the result. Everything that makes a movement
-safe — the idempotency key, the per-wallet lock, the optimistic version, the
-rate limit, the outbound risk check — is inherited, because none of it lives in
-the HTTP layer.
+Two rules this file exists to keep:
 
-Two things are deliberately different from the HTTP surface, and both are about
-who is talking.
-
-**The owner is not a tool argument.** It comes from the server's configuration
-and the model cannot see or set it. A `deposit(owner_id, wallet_id, amount)`
-tool would be a cross-tenant IDOR with a natural-language interface: anything
-that can persuade the model to pass a different id moves somebody else's money.
-Prompt injection is not a hypothetical for a tool surface — the model reads
-untrusted text for a living.
-
-**Statuses do not appear.** MCP has no 404 and no 409. The interactors never had
-them either: they raise `ApplicationError` with a code, and the HTTP layer is
-the thing that decided a code maps to a status. Here the code travels as the
-code. That the translation lives in exactly one place per transport is the
-whole argument for the layering.
+* The owner is bound at construction, from configuration. A tool taking an
+  `owner_id` would be a cross-tenant IDOR with a natural-language interface.
+* No status codes. MCP has no 404; the interactors never had one either.
 """
 
 import functools

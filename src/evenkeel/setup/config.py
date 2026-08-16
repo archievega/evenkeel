@@ -7,10 +7,8 @@ DEV_IDENTITY = "dev"
 ALLOW_ALL_RISK = "allow-all"
 HTTP_RISK = "http"
 
-# nosec B105 — the opposite of a hardcoded credential. This is the sentinel the
-# boot check compares against: seeing it means nobody supplied a secret, and the
-# server refuses to start in production. Removing it would remove the guard, not
-# the risk.
+# nosec B105 — the opposite of a hardcoded credential: the sentinel the boot
+# check compares against. Removing it removes the guard, not the risk.
 DEFAULT_SECRET = "change-me"  # nosec B105
 
 
@@ -29,16 +27,10 @@ class ApiConfig(BaseModel):
 class AppConfig(BaseModel):
     """One switch, and it fails closed.
 
-    There used to be two — `debug` and `environment` — and they interacted
-    badly: `debug` defaulted to True, it was reported as a fatal problem by the
-    boot guard, and it was also the flag that suppressed the guard, so the check
-    could never fire in the configuration that shipped. Meanwhile `environment`
-    was read by nothing.
-
-    `environment` now decides everything and defaults to `production`. An image
-    deployed without configuration therefore gets the strict posture, and the
-    permissive one has to be asked for — which is what `compose.yml` and
-    `.env.example` do explicitly.
+    `environment` decides everything and defaults to `production`, so an image
+    deployed without configuration gets the strict posture and the permissive
+    one has to be asked for. A second flag is what made the boot guard
+    unfireable once; do not add one.
     """
 
     name: str = "evenkeel"
@@ -47,27 +39,22 @@ class AppConfig(BaseModel):
     # guard has something to refuse: a placeholder that authenticates whoever
     # asks must not reach production silently.
     identity_provider: str = DEV_IDENTITY
-    # nosec B104 — a container that binds loopback is unreachable from outside
-    # itself, so 0.0.0.0 is the only workable default here. Exposure is
-    # controlled one layer out: compose publishes to 127.0.0.1 only, and in
-    # production the container sits behind a reverse proxy.
+    # nosec B104 — a container binding loopback is unreachable from outside
+    # itself. Exposure is controlled one layer out: compose publishes to
+    # 127.0.0.1, production sits behind a reverse proxy.
     host: str = "0.0.0.0"  # nosec B104
     port: int = 8000
     workers: int = 1
-    # Off by default, and only honoured with a single worker. Beyond the usual
-    # "reload is for development", uvicorn's watcher has a failure mode that
-    # costs real debugging time: on rapid successive reloads the shutdown half
-    # of the lifespan sometimes does not run. Ours closes the DI container,
-    # which disposes the SQLAlchemy pool — so a skipped shutdown leaks
-    # connections, and the symptom appears far from the cause.
+    # Single worker only. On rapid reloads uvicorn sometimes skips the shutdown
+    # half of the lifespan, which is what closes the DI container and disposes
+    # the pool — so it leaks connections, and the symptom appears far away.
     reload: bool = False
     # Idle upstream connections must be closed by the reverse proxy, not by the
     # app: if the app closes first, in-flight requests surface to clients as
     # "upstream prematurely closed connection". Keep this above the proxy value.
     timeout_keep_alive: int = 75
-    # How long the server waits for in-flight requests after SIGTERM. Must be
-    # shorter than the orchestrator's kill grace period, or the process is
-    # SIGKILLed mid-request and the client sees a connection reset instead of a
+    # Must be shorter than the orchestrator's kill grace period, or the process
+    # is SIGKILLed mid-request and the client gets a reset instead of the
     # response it already paid for.
     timeout_graceful_shutdown: int = 30
     secret_key: SecretStr = SecretStr(DEFAULT_SECRET)
@@ -98,11 +85,9 @@ class DatabaseConfig(BaseModel):
     def async_dsn(self) -> SecretStr:
         """Built component-wise, never by f-string.
 
-        An f-string DSN treats the password as URL syntax. `p@ss` makes the
-        parser read `ss@host` as the host and connect somewhere else with a
-        truncated credential; `pa%ss` detonates later inside alembic's
-        ConfigParser, printing the whole DSN to stderr. `URL.create` escapes
-        each component, so a generated password stays a password.
+        An f-string treats the password as URL syntax: `p@ss` connects to the
+        wrong host with a truncated credential, `pa%ss` detonates in alembic's
+        ConfigParser and prints the whole DSN to stderr.
         """
         return SecretStr(
             URL.create(
@@ -146,10 +131,9 @@ class MovementPolicyConfig(BaseModel):
 class OutboundHttpConfig(BaseModel):
     """How this service calls someone else's.
 
-    Defaults are deliberately impatient. A dependency on the request path gets
-    one retry and a budget under two seconds, because the alternative — a
-    generous timeout that "gives it a chance" — converts the provider's bad day
-    into this service's outage, one held connection at a time.
+    Deliberately impatient: one retry, a budget under two seconds. A generous
+    timeout converts the provider's bad day into this service's outage, one
+    held connection at a time.
     """
 
     total_timeout_ms: int = 800
