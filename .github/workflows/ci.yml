@@ -243,14 +243,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Into the workspace, not `/tmp`. `oasdiff-action` is a Docker action and
+      # only the workspace is mounted into its container, so a file written to
+      # the runner's `/tmp` is invisible to it and the step fails with "no such
+      # file". This job only runs on pull requests, so the mistake survived
+      # until the first one.
       - name: fetch the base contract
-        run: git show ${{ github.event.pull_request.base.sha }}:openapi.json > /tmp/base-openapi.json
+        run: git show ${{ github.event.pull_request.base.sha }}:openapi.json > base-openapi.json
       # Reports what changed for a consumer, and fails only on the breaking
       # subset. Additive changes are expected and should not block a merge.
       - name: breaking change check
-        uses: oasdiff/oasdiff-action/breaking@main
+        # A release tag, like every other action here. It was `@main`, which is
+        # a moving target with access to the workflow token, and which Renovate
+        # cannot update because there is nothing to update to.
+        uses: oasdiff/oasdiff-action/breaking@v0.1.13
         with:
-          base: /tmp/base-openapi.json
+          base: base-openapi.json
           revision: openapi.json
           fail-on: ERR
 
