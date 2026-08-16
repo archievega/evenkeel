@@ -200,11 +200,23 @@ the rest.
 
 ## Development
 
+`make` on its own prints the grouped, coloured list; the whole surface is
+twenty targets in five groups.
+
 ```bash
 make sync      # install
-make check     # lint, architecture contracts, types, schema drift, tests
+make check     # every gate, with a pass/fail summary and per-gate timings
 make run       # start the API
+make run-mcp   # start the MCP server on stdio
+make demo      # re-record docs/demo.gif from the tape
+make load      # drive the API under k6
 ```
+
+`make check` runs the same list CI does and, like the CI gate job, runs every
+gate even after one fails — being told about one broken thing at a time costs a
+full rerun to find the next. Colour follows [NO_COLOR](https://no-color.org) and
+switches itself off when the output is not a terminal, so a CI log does not fill
+with escape codes.
 
 ## Status
 
