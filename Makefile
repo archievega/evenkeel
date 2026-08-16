@@ -43,7 +43,7 @@ step = @printf '$(CYAN)$(BOLD)▸$(RESET) $(BOLD)%s$(RESET)\n' $(1)
 GATES := lint arch types schema-check test
 
 .PHONY: help sync fmt lint arch types schema schema-check test test-integration \
-	check run run-mcp migrate revision demo load clean
+	check run run-mcp migrate revision new-vertical demo load clean
 
 ##@ General
 
@@ -145,6 +145,15 @@ revision: ## Autogenerate a migration: make revision M="add wallets"
 	}
 	$(call step,revision)
 	$(UV) run alembic revision --autogenerate -m "$(M)"
+
+##@ Scaffolding
+
+new-vertical: ## Scaffold a vertical across the layers: make new-vertical NAME=orders
+	@test -n "$(NAME)" || { \
+		printf '$(RED)NAME is required$(RESET), e.g. $(BOLD)make new-vertical NAME=orders$(RESET)\n'; \
+		exit 1; \
+	}
+	$(UV) run python tools/new_vertical.py --name $(NAME)
 
 ##@ Artefacts
 

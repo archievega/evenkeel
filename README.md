@@ -198,6 +198,30 @@ only tests that would have caught a broken adapter.
 `make test` runs everything that needs no service; `make test-integration` runs
 the rest.
 
+## For agents
+
+[`AGENTS.md`](AGENTS.md) is the rule set an agent gets before it edits anything:
+the layer table, a "task → files, in order" map, DO/DON'T for the rules with
+teeth, an anti-pattern table of every trap this build actually hit, and the list
+of changes that must stop and ask a human. `CLAUDE.md` points at it, so both
+conventions resolve to one file.
+
+Most of those rules are a command rather than a paragraph — `make arch` fails on
+a crossed layer, `make types` on an adapter that drifted from its port,
+`make schema-check` on an HTTP contract that changed without the document
+changing with it. Two conventions became checks while this was written: every
+adapter must be named in `conformance.py`
+(`tests/unit/test_adapter_conformance.py`), and the scaffolder's own output must
+pass the project's lint and resolve every symbol it imports
+(`tests/unit/test_new_vertical.py`).
+
+```bash
+make new-vertical NAME=orders
+```
+
+writes the interactor, schema, router and test in the right layers and prints
+the three edits it deliberately does not make for you.
+
 ## Development
 
 `make` on its own prints the grouped, coloured list; the whole surface is

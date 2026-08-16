@@ -8,7 +8,15 @@ lint, passes `mypy`, passes every test that uses a fake -- and raises
 These annotations are the missing check. They cost nothing at runtime and turn
 that drift into a type error at the moment it is introduced. Add one line here
 whenever an adapter is bound to a port in `setup/ioc`.
+
+Forgetting to is not a hypothetical: three adapters written in one afternoon —
+`AllowAllRiskAssessment`, `HttpRiskAssessment`, `PrometheusMetrics` — were all
+missing from this file, which is what a convention nothing enforces looks like
+after a busy day. `tests/unit/test_adapter_conformance.py` now enumerates every
+implementation of an abstract port and fails when one is not named here.
 """
+
+from typing import TYPE_CHECKING
 
 from evenkeel.application.ports import (
     BulkheadPort,
@@ -22,6 +30,7 @@ from evenkeel.application.ports import (
     WalletRepository,
 )
 from evenkeel.application.ports.identity import IdentityProvider
+from evenkeel.application.ports.risk import RiskAssessmentPort
 from evenkeel.infrastructure.adapters.dev_identity import DevIdentityProvider
 from evenkeel.infrastructure.adapters.memory.bulkhead import InMemoryBulkhead
 from evenkeel.infrastructure.adapters.memory.idempotency import InMemoryIdempotencyStore
@@ -30,6 +39,8 @@ from evenkeel.infrastructure.adapters.memory.locking import (
     InMemoryRateLimiter,
 )
 from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
+from evenkeel.infrastructure.adapters.noop.risk import AllowAllRiskAssessment
+from evenkeel.infrastructure.adapters.prometheus.metrics import PrometheusMetrics
 from evenkeel.infrastructure.adapters.redis.bulkhead import RedisBulkhead
 from evenkeel.infrastructure.adapters.redis.idempotency import RedisIdempotencyStore
 from evenkeel.infrastructure.adapters.redis.locking import (
@@ -39,6 +50,11 @@ from evenkeel.infrastructure.adapters.redis.locking import (
 from evenkeel.infrastructure.adapters.sqla.ledger_repository import SqlaLedgerRepository
 from evenkeel.infrastructure.adapters.sqla.wallet_repository import SqlaWalletRepository
 from evenkeel.infrastructure.adapters.system import SystemClock, Uuid7Generator
+
+if TYPE_CHECKING:
+    # Behind the `outbound` extra. Imported for typing only, so this module
+    # still loads in an install that does not have aiohttp.
+    from evenkeel.infrastructure.adapters.http.risk import HttpRiskAssessment
 
 
 def _assert_wallet_repository(adapter: SqlaWalletRepository) -> WalletRepository:
@@ -94,4 +110,16 @@ def _assert_bulkhead(adapter: InMemoryBulkhead) -> BulkheadPort:
 
 
 def _assert_redis_bulkhead(adapter: RedisBulkhead) -> BulkheadPort:
+    return adapter
+
+
+def _assert_prometheus_metrics(adapter: PrometheusMetrics) -> MetricsPort:
+    return adapter
+
+
+def _assert_allow_all_risk(adapter: AllowAllRiskAssessment) -> RiskAssessmentPort:
+    return adapter
+
+
+def _assert_http_risk(adapter: "HttpRiskAssessment") -> RiskAssessmentPort:
     return adapter
