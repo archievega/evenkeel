@@ -1,6 +1,17 @@
 # evenkeel
 
+[![CI](https://github.com/archievega/evenkeel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/archievega/evenkeel/actions/workflows/ci.yml)
+[![layers enforced](https://img.shields.io/badge/layers-enforced-2ea44f)](.importlinter)
+[![mypy strict](https://img.shields.io/badge/mypy-strict-2ea44f)](pyproject.toml)
+[![coverage gate 80%](https://img.shields.io/badge/coverage%20gate-80%25-2ea44f)](.github/workflows/ci.yml)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-3776ab)](pyproject.toml)
+[![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **A FastAPI backend template that keeps its claims checkable.**
+
+Each badge links to the file that makes it true, and the first one is the job
+that keeps the rest honest — the layer contract, the strict type check and the
+coverage floor all run in that pipeline.
 
 Clean architecture, ports and adapters, and an opt-in slice system — where every
 architectural promise is enforced by a machine rather than described in this file.
