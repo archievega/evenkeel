@@ -1,0 +1,45 @@
+# Every hook here also runs in CI. A pre-commit config that is weaker than CI
+# trains people to ignore it; one that is stronger blocks commits for reasons
+# the pipeline does not care about.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      # `detect-private-key` above only matches PEM headers. It does not catch a
+      # connection string with a password in it, or a bearer token pasted into a
+      # script -- which is the shape real leaks take.
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: architecture contracts
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy src
+        language: system
+        pass_filenames: false
+        types: [python]

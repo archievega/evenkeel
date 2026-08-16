@@ -1,0 +1,51 @@
+# Architecture as an executable contract.
+#
+# Layer rules that live only in a README are decoration: they are violated on
+# the first busy Friday and nobody notices until the domain imports asyncpg.
+# `lint-imports` runs in CI and fails the build instead.
+
+[importlinter]
+root_package = appcore
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Layered architecture
+type = layers
+# appcore.logging is intentionally absent: it is a leaf utility with no
+# dependencies of its own, and forcing it into the stack would push logging
+# below the domain or duplicate it per layer.
+layers =
+    appcore.entrypoints
+    appcore.setup
+    appcore.presentation
+    appcore.infrastructure
+    appcore.application
+    appcore.domain
+
+[importlinter:contract:domain-purity]
+name = Domain depends on nothing but the standard library
+type = forbidden
+source_modules =
+    appcore.domain
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    pydantic
+    redis
+    structlog
+    dishka
+    uuid_utils
+
+[importlinter:contract:application-purity]
+name = Application knows ports, not frameworks or drivers
+type = forbidden
+source_modules =
+    appcore.application
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    redis
+    dishka
+    appcore.infrastructure
+    appcore.presentation
+    appcore.setup

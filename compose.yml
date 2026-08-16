@@ -1,0 +1,99 @@
+# `docker compose up` gives a working API with no credentials and no external
+# services. Everything optional is a profile: `--profile redis`, and the
+# observability stack lives in its own file.
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    environment:
+      APP__DATABASE__HOST: db
+      APP__DATABASE__USER: appcore
+      APP__DATABASE__PASSWORD: appcore
+      APP__DATABASE__DATABASE: appcore
+      APP__APP__DEBUG: "true"
+      APP__APP__LOGGING__JSON_LOGS: "false"
+    ports:
+      # Bound to loopback. Publishing on 0.0.0.0 exposes a development stack --
+      # debug on, docs open, default password -- to the whole local network and,
+      # on a cloud host, to the internet.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Long enough for in-flight requests to finish before SIGKILL; must exceed
+    # the server's own graceful-shutdown budget.
+    stop_grace_period: 45s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      APP__DATABASE__HOST: db
+      APP__DATABASE__USER: appcore
+      APP__DATABASE__PASSWORD: appcore
+      APP__DATABASE__DATABASE: appcore
+    depends_on:
+      db:
+        condition: service_healthy
+    # A one-shot that the API waits on, rather than migrations racing N replicas
+    # at startup.
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  db:
+    image: postgres:17.4-alpine
+    environment:
+      POSTGRES_USER: appcore
+      POSTGRES_PASSWORD: appcore
+      POSTGRES_DB: appcore
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Off the default port on purpose: a template that grabs 5432 collides
+      # with whatever Postgres the machine is already running, and the first
+      # experience of it is a port conflict instead of a working API.
+      - "127.0.0.1:${DB_PORT:-55432}:5432"
+    healthcheck:
+      # The API's `depends_on` waits for this, so "started" never means
+      # "accepting queries" -- the classic first-boot crash loop.
+      test: ["CMD-SHELL", "pg_isready -U appcore -d appcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    restart: unless-stopped
+
+  redis:
+    profiles: [redis]
+    image: redis:7.4-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

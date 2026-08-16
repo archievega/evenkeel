@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.7"
+
+jobs:
+  quality:
+    name: lint, architecture, types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests
+      # The layer rules are a build failure, not a README paragraph.
+      - run: uv run lint-imports
+      # No `continue-on-error`. A type check that cannot fail the build is
+      # documentation that happens to execute.
+      - run: uv run mypy src
+
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      # Present, so the port contract suite runs against the real adapter too
+      # instead of only the in-memory one it is meant to keep honest.
+      TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+  migrations:
+    name: migration round-trip and drift
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_USER: appcore
+          POSTGRES_PASSWORD: appcore
+          POSTGRES_DB: appcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      APP__DATABASE__HOST: localhost
+      APP__DATABASE__USER: appcore
+      APP__DATABASE__PASSWORD: appcore
+      APP__DATABASE__DATABASE: appcore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+
+      # Migrations get their first real execution here, not against production.
+      - name: upgrade
+        run: uv run alembic upgrade head
+      - name: downgrade to base
+        run: uv run alembic downgrade base
+      - name: upgrade again
+        run: uv run alembic upgrade head
+
+      # Catches the model change that never got a migration -- the drift that
+      # only surfaces when a production query hits a column that is not there.
+      - name: no pending schema drift
+        run: uv run alembic check
+
+  security:
+    name: secrets, dependencies, code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history: a secret committed and reverted is still
+          # published, and scanning only the tip would miss it.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - name: known vulnerabilities in dependencies
+        run: uv run pip-audit --strict
+      - name: static security analysis
+        run: uv run bandit -r src -c pyproject.toml
+
+  image:
+    name: build and scan image
+    runs-on: ubuntu-latest
+    needs: [quality]
+    env:
+      REF_NAME: ${{ github.ref_name }}
+      COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: appcore:${{ github.sha }}
+          # Passed through env rather than interpolated: a ref name is
+          # attacker-influenced text, and interpolating such values directly
+          # into build args or run steps is the standard workflow-injection
+          # foothold.
+          build-args: |
+            APP_VERSION=${{ env.REF_NAME }}
+            APP_COMMIT=${{ env.COMMIT_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: appcore:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: software bill of materials
+        uses: anchore/sbom-action@v0
+        with:
+          image: appcore:${{ github.sha }}
+          format: cyclonedx-json
+          artifact-name: sbom.cyclonedx.json
+
+  smoke:
+    name: it actually starts
+    runs-on: ubuntu-latest
+    needs: [quality]
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose up
+        run: docker compose up -d --build --wait
+      # A green unit suite proves the code parses. This proves the image boots,
+      # migrations apply, and the app can reach its database.
+      - name: readiness reports ready
+        run: |
+          body=$(curl -fsS localhost:8000/ready)
+          echo "$body"
+          echo "$body" | grep -q '"status":"ready"'
+      - name: logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: compose down
+        if: always()
+        run: docker compose down -v

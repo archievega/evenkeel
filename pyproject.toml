@@ -1,0 +1,111 @@
+[build-system]
+requires = ["uv_build>=0.9.6,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "appcore"
+
+[project]
+name = "appcore"
+version = "0.1.0"
+description = "Production-shaped FastAPI template: clean architecture, ports and adapters, opt-in slices"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+
+# The core runs with nothing but a database. Everything that can be turned off
+# lives in an extra and has a null adapter, so `uv sync` gives a working API.
+dependencies = [
+    "alembic>=1.16",
+    "asyncpg>=0.30",
+    "dishka>=1.6",
+    "fastapi>=0.118",
+    "pydantic-settings>=2.10",
+    "pydantic>=2.11",
+    "sqlalchemy>=2.0.43",
+    "structlog>=25.4",
+    "uuid-utils>=0.11",
+    "uvicorn>=0.36",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=6.0"]
+metrics = ["prometheus-client>=0.23"]
+tracing = [
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.52b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.52b0",
+]
+
+[project.scripts]
+appcore-web = "appcore.entrypoints.web:main"
+
+[dependency-groups]
+lint = ["ruff>=0.14", "import-linter>=2.3", "pre-commit>=4.0"]
+typecheck = ["mypy>=1.18"]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=1.0",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "testcontainers[postgres]>=4.9",
+]
+security = ["bandit>=1.8", "pip-audit>=2.9"]
+dev = [
+    { include-group = "lint" },
+    { include-group = "typecheck" },
+    { include-group = "test" },
+    { include-group = "security" },
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 90
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length is the formatter's job
+    "B008",   # FastAPI expresses dependencies as argument defaults
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["appcore", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+# The template's own claim is type safety; an unchecked module is a hole in it.
+disallow_untyped_defs = true
+disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+module = ["dishka.*", "uuid_utils.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-q"]
+markers = [
+    "integration: needs a real database (testcontainers)",
+    "contract: a port contract suite every adapter must pass",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
