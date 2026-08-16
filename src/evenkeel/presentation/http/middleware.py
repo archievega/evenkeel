@@ -1,11 +1,8 @@
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 
 import structlog
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from evenkeel.application.ports import MetricsPort
 from evenkeel.logging import get_logger
@@ -13,38 +10,66 @@ from evenkeel.logging import get_logger
 log = get_logger(__name__)
 
 CORRELATION_HEADER = "X-Correlation-ID"
+_CORRELATION_HEADER_BYTES = CORRELATION_HEADER.lower().encode()
 
 
-class ObservabilityMiddleware(BaseHTTPMiddleware):
+class ObservabilityMiddleware:
     """Correlation id, request log and request metrics in one pass.
+
+    Written as pure ASGI rather than `BaseHTTPMiddleware`, and the difference is
+    not academic. `BaseHTTPMiddleware` runs the downstream app in a task pair
+    joined by an anyio memory stream so it can hand you `Request`/`Response`
+    objects; across runs that machinery cost **55-65% of throughput** on a
+    trivial endpoint, against **1-3%** for the version below. Reproduce with
+    `tools/bench_middleware.py` rather than taking the number on faith.
+
+    The relative cost shrinks once a handler does real I/O, but it is paid on
+    every request by every endpoint forever, and avoiding it costs only the mild
+    inconvenience of handling raw ASGI messages.
 
     The id is taken from the inbound header when present so a trace survives
     across services, and echoed back so a user can quote it in a bug report.
     """
 
     def __init__(self, app: ASGIApp, metrics: MetricsPort) -> None:
-        super().__init__(app)
+        self._app = app
         self._metrics = metrics
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        correlation_id = request.headers.get(CORRELATION_HEADER) or str(uuid.uuid4())
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Lifespan and websocket traffic is none of this middleware's business.
+        # Treating an unknown scope type as HTTP is how ASGI middleware breaks on
+        # the first protocol it did not anticipate.
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        correlation_id = _inbound_correlation_id(scope) or str(uuid.uuid4())
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             correlation_id=correlation_id,
-            http_method=request.method,
-            http_path=request.url.path,
+            http_method=scope.get("method", ""),
+            http_path=scope.get("path", ""),
         )
 
         self._metrics.request_started()
         started_at = time.perf_counter()
+        status_code = 500
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = list(message.get("headers", []))
+                headers.append((_CORRELATION_HEADER_BYTES, correlation_id.encode()))
+                message["headers"] = headers
+            await send(message)
+
         try:
-            response = await call_next(request)
+            await self._app(scope, receive, send_wrapper)
         except Exception as exc:
             self._metrics.request_failed(
-                method=request.method,
-                handler=_handler_label(request),
+                method=scope.get("method", ""),
+                handler=_handler_label(scope),
                 exception_type=type(exc).__name__,
                 duration_seconds=time.perf_counter() - started_at,
             )
@@ -52,27 +77,35 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         else:
             duration = time.perf_counter() - started_at
             self._metrics.request_finished(
-                method=request.method,
-                handler=_handler_label(request),
-                status_code=response.status_code,
+                method=scope.get("method", ""),
+                handler=_handler_label(scope),
+                status_code=status_code,
                 duration_seconds=duration,
             )
-            response.headers[CORRELATION_HEADER] = correlation_id
             log.info(
                 "http_request",
-                status_code=response.status_code,
+                status_code=status_code,
                 duration_seconds=round(duration, 4),
             )
-            return response
         finally:
             structlog.contextvars.clear_contextvars()
 
 
-def _handler_label(request: Request) -> str:
+def _inbound_correlation_id(scope: Scope) -> str | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() == _CORRELATION_HEADER_BYTES:
+            decoded: str = value.decode("latin-1")
+            return decoded
+    return None
+
+
+def _handler_label(scope: Scope) -> str:
     """Use the route template, never the raw path.
 
-    ``/v1/wallets/{wallet_id}`` is one time series; the raw path is one series
-    per wallet, which is how a metrics backend runs out of memory.
+    `/v1/wallets/{wallet_id}` is one time series; the raw path is one series per
+    wallet, which is how a metrics backend runs out of memory. The router writes
+    the matched route into the scope while handling, so this is read after the
+    downstream app has run rather than before.
     """
-    route = request.scope.get("route")
+    route = scope.get("route")
     return getattr(route, "path", "unmatched")
