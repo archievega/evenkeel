@@ -13,6 +13,8 @@ import asyncio
 import json
 import random
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -36,6 +38,7 @@ class Failure(StrEnum):
     CLIENT_ERROR = "client_error"
     OVERSIZED = "oversized"
     MALFORMED = "malformed"
+    REDIRECTED = "redirected"
     BULKHEAD_FULL = "bulkhead_full"
     BUDGET_EXHAUSTED = "budget_exhausted"
 
@@ -84,6 +87,51 @@ class SessionPolicy:
     dns_cache_seconds: int = 30
     trust_env: bool = False
     backstop_timeout_ms: int = 5_000
+
+
+@asynccontextmanager
+async def open_session(
+    policy: SessionPolicy, *, headers: dict[str, str]
+) -> AsyncIterator[aiohttp.ClientSession]:
+    """The one place an outbound session is built, and the one place it closes.
+
+    A context manager rather than a constructor because a `ClientSession` that
+    is garbage-collected without `close()` leaves its connector's sockets open
+    and prints an unhelpful warning at interpreter exit. Handing back a
+    closeable object and trusting every call site is how this codebase already
+    leaked four Redis clients.
+
+    Takes a policy rather than the settings object: infrastructure sits below
+    `setup` in the layer contract, and turning configuration into policy is the
+    composition root's job. A config import here would let any adapter reach for
+    any setting, which is how a "small" change to `DatabaseConfig` ends up
+    breaking an HTTP client.
+    """
+    session = aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(
+            # The transport-level ceiling on sockets. Related to the bulkhead
+            # but not a substitute: exceeding this limit makes a caller *wait*
+            # for a free connection, which is precisely the unbounded queue the
+            # bulkhead exists to refuse. Keep it above the bulkhead limit so the
+            # bulkhead answers first, with a decision rather than a delay.
+            limit=policy.connection_limit,
+            limit_per_host=policy.connection_limit,
+            ttl_dns_cache=policy.dns_cache_seconds,
+        ),
+        headers={"User-Agent": "evenkeel-outbound", **headers},
+        # Every request passes its own timeout; this is the backstop for any
+        # path that forgets. aiohttp's default is 5 minutes, which on a request
+        # path is indistinguishable from no timeout at all.
+        timeout=aiohttp.ClientTimeout(total=policy.backstop_timeout_ms / 1000),
+        # Ignore HTTP_PROXY and friends unless asked. An environment variable
+        # that silently reroutes outbound traffic through a third party is a
+        # supply-chain problem, not a convenience.
+        trust_env=policy.trust_env,
+    )
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,18 +257,33 @@ class JsonHttpTransport:
         )
         try:
             async with self._session.post(
-                url, json=payload, headers=self._headers(), timeout=timeout
+                url,
+                json=payload,
+                headers=self._headers(),
+                timeout=timeout,
+                # A redirect is a request to send this payload — and its API
+                # key — somewhere the configuration never named. `aiohttp`
+                # follows them by default and across hosts, so a provider whose
+                # endpoint can be made to answer `302` reroutes the call to
+                # whoever the `Location` names, and the answer that comes back
+                # is trusted as theirs. This codebase already refuses proxy
+                # environment variables for exactly that reason; following a
+                # redirect is the same handover with extra steps.
+                allow_redirects=False,
             ) as response:
-                # Read with a cap instead of `response.json()`, which reads the
-                # whole body first. A provider that answers with a gigabyte —
-                # by accident or otherwise — must not be able to spend this
-                # process's memory.
-                raw = await response.content.read(self._policy.max_response_bytes + 1)
+                raw = await read_capped(
+                    response.content, self._policy.max_response_bytes + 1
+                )
                 retry_after_ms = _retry_after_ms(response.headers.get("Retry-After"))
 
                 if len(raw) > self._policy.max_response_bytes:
                     return (
                         JsonResponse(response.status, None, Failure.OVERSIZED),
+                        retry_after_ms,
+                    )
+                if 300 <= response.status < 400:
+                    return (
+                        JsonResponse(response.status, None, Failure.REDIRECTED),
                         retry_after_ms,
                     )
                 if response.status >= 500 or response.status == 429:
@@ -282,6 +345,37 @@ class JsonHttpTransport:
         if response.failure is Failure.NONE:
             return "success"
         return response.failure.value
+
+
+async def read_capped(stream: aiohttp.StreamReader, limit: int) -> bytes:
+    """Read up to `limit` bytes, however many segments they arrive in.
+
+    Two things at once, and the second is why this is not `response.json()`:
+
+    A provider that answers with a gigabyte, by accident or otherwise, must not
+    be able to spend this process's memory — so the read stops at the cap and
+    the caller decides what an oversized body means.
+
+    And `StreamReader.read(n)` returns what is *buffered*, not `n` bytes. A
+    single call therefore truncates any response larger than one TCP segment,
+    which on loopback never happens and against a real provider happens at
+    about 1400 bytes. That bug shipped here: a 3 KB risk decision came back
+    `MALFORMED`, and a `refuse` was reported to the caller as "provider
+    unavailable".
+    """
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await stream.read(limit - size):
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= limit:
+            break
+    return b"".join(chunks)
+
+
+def decode_object(raw: bytes) -> dict[str, Any] | None:
+    """JSON that is an object, or `None`. Anything else is not our shape."""
+    return _decode(raw)
 
 
 def _decode(raw: bytes) -> dict[str, Any] | None:

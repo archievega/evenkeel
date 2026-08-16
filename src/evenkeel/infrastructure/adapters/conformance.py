@@ -50,6 +50,9 @@ if TYPE_CHECKING:
     # still loads in an install that does not have aiohttp.
     from evenkeel.infrastructure.adapters.http.risk import HttpRiskAssessment
 
+    # Behind the `jwt` extra, for the same reason.
+    from evenkeel.infrastructure.adapters.jwt.identity import JwtIdentityProvider
+
 
 def _assert_wallet_repository(adapter: SqlaWalletRepository) -> WalletRepository:
     return adapter
@@ -116,4 +119,8 @@ def _assert_allow_all_risk(adapter: AllowAllRiskAssessment) -> RiskAssessmentPor
 
 
 def _assert_http_risk(adapter: "HttpRiskAssessment") -> RiskAssessmentPort:
+    return adapter
+
+
+def _assert_jwt_identity(adapter: "JwtIdentityProvider") -> IdentityProvider:
     return adapter

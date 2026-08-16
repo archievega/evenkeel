@@ -9,6 +9,7 @@ surfaces as a dashboard that quietly means something else.
 
 import asyncio
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 import pytest
 from dishka import make_async_container
@@ -16,6 +17,7 @@ from dishka.integrations.fastapi import FastapiProvider
 from httpx import ASGITransport, AsyncClient
 from starlette.types import Message, Receive, Scope, Send
 
+from evenkeel.domain.value_objects.ids import OwnerId
 from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
 from evenkeel.presentation.http.middleware import ObservabilityMiddleware
 from evenkeel.setup.app_factory import create_app
@@ -179,3 +181,56 @@ async def test_every_started_request_is_accounted_for(
 
     assert metrics.started == 1
     assert metrics.finished + metrics.failed == 1, f"{name} left the gauge stranded"
+
+
+@pytest.mark.cwe(93)
+@pytest.mark.parametrize(
+    ("supplied", "why"),
+    [
+        ("abc\r\nX-Injected: yes", "carriage return, so it splits a header"),
+        ("abc\nfake log line", "newline, so it writes its own log entry"),
+        ("x" * 10_240, "10 KB, copied into every log line for the request"),
+        ("abc\x00\x07def", "control characters"),
+    ],
+)
+async def test_a_hostile_correlation_id_is_replaced(
+    client: AsyncClient, owner_id: OwnerId, supplied: str, why: str
+) -> None:
+    """Whatever arrives is echoed into a response header, bound into every log
+    line, and forwarded to providers as an outbound header.
+
+    Taken verbatim it was all three at once, unauthenticated: the CRLF reached
+    the response headers, the 10 KB reached the logs, and the outbound copy
+    raised out of `aiohttp` as a 500. A fresh id is substituted rather than the
+    request refused — a malformed trace header is not a reason to fail a call.
+    """
+    response = await client.get(
+        "/v1/wallets",
+        headers={
+            "Authorization": f"Bearer {owner_id.value}",
+            "X-Correlation-Id": supplied,
+        },
+    )
+
+    echoed = response.headers["x-correlation-id"]
+    assert echoed != supplied, why
+    assert UUID(echoed)
+
+
+@pytest.mark.cwe(93)
+async def test_a_well_formed_correlation_id_is_kept(
+    client: AsyncClient, owner_id: OwnerId
+) -> None:
+    """The point of the header is that one id spans several systems. Replacing
+    a usable one would break the join it exists for."""
+    supplied = "018f4b2c-0000-7000-8000-000000000000"
+
+    response = await client.get(
+        "/v1/wallets",
+        headers={
+            "Authorization": f"Bearer {owner_id.value}",
+            "X-Correlation-Id": supplied,
+        },
+    )
+
+    assert response.headers["x-correlation-id"] == supplied

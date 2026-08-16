@@ -8,6 +8,8 @@ is cheap enough that there is no excuse for the mock.
 """
 
 import asyncio
+import gzip
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -17,7 +19,7 @@ import pytest
 
 aiohttp = pytest.importorskip("aiohttp", reason="requires the `outbound` extra")
 
-from aiohttp import web  # noqa: E402
+from aiohttp import ClientConnectionError, web  # noqa: E402
 from aiohttp.test_utils import TestServer  # noqa: E402
 
 from evenkeel.application.ports.risk import RiskCheck, RiskOutcome  # noqa: E402
@@ -175,13 +177,26 @@ async def test_a_client_error_is_not_retried(session: aiohttp.ClientSession) -> 
 async def test_an_oversized_body_is_refused_rather_than_read(
     session: aiohttp.ClientSession,
 ) -> None:
-    async def enormous(request: web.Request) -> web.StreamResponse:
-        return web.json_response({"decision": "allow", "padding": "x" * 10_000})
+    async def endless(request: web.Request) -> web.StreamResponse:
+        """Never stops. A body with a known size proves only that the *length
+        check* fires — the whole point of the cap is that the read stops, and a
+        finite body is consumed either way."""
+        response = web.StreamResponse(status=200)
+        response.content_type = "application/json"
+        await response.prepare(request)
+        try:
+            while True:
+                await response.write(b"x" * 8192)
+        except (ConnectionResetError, ClientConnectionError):
+            return response
 
-    async with serve(enormous) as (base_url, _):
-        response = await transport(
-            session, base_url, max_response_bytes=1_000, max_attempts=1
-        ).post_json(PATH, {}, operation="assess")
+    async with serve(endless) as (base_url, _):
+        response = await asyncio.wait_for(
+            transport(
+                session, base_url, max_response_bytes=1_000, max_attempts=1
+            ).post_json(PATH, {}, operation="assess"),
+            timeout=5,
+        )
 
         assert response.failure is Failure.OVERSIZED
 
@@ -311,3 +326,103 @@ def _check() -> RiskCheck:
         direction=LedgerDirection.DEBIT,
         idempotency_key="key",
     )
+
+
+@pytest.mark.cwe(755)
+async def test_a_response_larger_than_one_segment_is_read_whole() -> None:
+    """`StreamReader.read(n)` returns what is buffered, not `n` bytes.
+
+    This shipped: a single read truncated every response over about 1400 bytes,
+    which is one TCP segment and roughly two sentences of provider prose. The
+    body then failed to parse, the call was reported `MALFORMED`, and a `refuse`
+    decision reached the caller as "provider unavailable" — fail-open on the one
+    answer that must not be lost.
+
+    It cannot reproduce on a single-segment response, so every other test in
+    this file passes with the bug present.
+    """
+    body = json.dumps(
+        {"decision": "refuse", "reason": "x" * 3000, "reference": "r-1"}
+    ).encode()
+
+    async def dribbling(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse(status=200)
+        response.content_type = "application/json"
+        await response.prepare(request)
+        for start in range(0, len(body), 1400):
+            await response.write(body[start : start + 1400])
+            await asyncio.sleep(0.01)
+        await response.write_eof()
+        return response
+
+    async with serve(dribbling) as (base_url, _), aiohttp.ClientSession() as session:
+        result = await transport(session, base_url).post_json(
+            PATH, {"amount": "1.00"}, operation="assess"
+        )
+
+    assert result.ok, f"truncated: {result.failure.value}"
+    assert result.body is not None
+    assert result.body["decision"] == "refuse"
+
+
+@pytest.mark.cwe(918)
+async def test_a_redirect_is_not_followed(session: aiohttp.ClientSession) -> None:
+    """`aiohttp` follows redirects by default, and across hosts.
+
+    So a provider endpoint that can be made to answer `302` reroutes the call —
+    payload, API key and all — to whoever wrote the `Location`, and the reply is
+    trusted as the provider's. Verified before the fix: the redirect target
+    received the request and its `allow` decision was taken.
+
+    This codebase already refuses proxy environment variables on the grounds
+    that silently rerouting outbound traffic is a supply-chain problem. A
+    followed redirect is the same handover.
+    """
+    reached: list[str] = []
+
+    async def elsewhere(request: web.Request) -> web.StreamResponse:
+        reached.append("target")
+        return web.json_response({"decision": "allow"})
+
+    target = web.Application()
+    target.router.add_post(PATH, elsewhere)
+    server = TestServer(target)
+    await server.start_server()
+
+    async def redirecting(request: web.Request) -> web.StreamResponse:
+        raise web.HTTPTemporaryRedirect(str(server.make_url(PATH)))
+
+    try:
+        async with serve(redirecting) as (base_url, _):
+            response = await transport(session, base_url, max_attempts=1).post_json(
+                PATH, {}, operation="assess"
+            )
+    finally:
+        await server.close()
+
+    assert response.failure is Failure.REDIRECTED
+    assert not reached, "the redirect target must never receive the call"
+
+
+@pytest.mark.cwe(400)
+async def test_the_size_cap_applies_after_decompression(
+    session: aiohttp.ClientSession,
+) -> None:
+    """A cap on the compressed bytes is not a cap. `aiohttp` decompresses
+    transparently, so the question is which side of that the limit sits on: 116
+    bytes on the wire expand past a 1 KB ceiling here."""
+    payload = json.dumps({"decision": "allow", "padding": "x" * 50_000}).encode()
+
+    async def compressed(request: web.Request) -> web.StreamResponse:
+        return web.Response(
+            body=gzip.compress(payload),
+            content_type="application/json",
+            headers={"Content-Encoding": "gzip"},
+        )
+
+    async with serve(compressed) as (base_url, _):
+        response = await transport(
+            session, base_url, max_response_bytes=1_000, max_attempts=1
+        ).post_json(PATH, {}, operation="assess")
+
+    assert response.failure is Failure.OVERSIZED

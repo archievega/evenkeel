@@ -46,6 +46,14 @@ outbound = [
 mcp = [
     "mcp>=2.0",
 ]
+jwt = [
+    # 2.13 is where PyJWT started refusing a header `alg` that disagrees with the
+    # JWKS key's own algorithm, which is what actually stops `alg: none`.
+    "pyjwt[crypto]>=2.13",
+    # The key set is fetched over HTTP, and doing that synchronously on a
+    # request path is the reason this adapter exists rather than PyJWKClient.
+    "aiohttp>=3.11",
+]
 
 [project.scripts]
 evenkeel-web = "evenkeel.entrypoints.web:main"
