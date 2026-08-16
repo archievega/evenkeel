@@ -18,9 +18,16 @@ if config.config_file_name is not None:
 # The DSN comes from the same settings object the application uses. A second
 # connection string in alembic.ini is a second thing to keep in sync, and it
 # drifts exactly when it matters -- during a production migration.
-config.set_main_option(
-    "sqlalchemy.url", load_settings().database.async_dsn.get_secret_value()
-)
+#
+# A URL supplied by the caller wins. Overwriting it unconditionally makes the
+# `sqlalchemy.url` on a Config object silently useless, so `command.upgrade()`
+# against a throwaway test database quietly migrates whatever the environment
+# points at instead -- which is the production database on the machine of
+# whoever runs the suite with a real .env loaded.
+if not config.get_main_option("sqlalchemy.url", None):
+    config.set_main_option(
+        "sqlalchemy.url", load_settings().database.async_dsn.get_secret_value()
+    )
 
 target_metadata = metadata
 

@@ -45,10 +45,26 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 3s --health-retries 10
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_USER: appcore
+          POSTGRES_PASSWORD: appcore
+          POSTGRES_DB: appcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
     env:
-      # Present, so the port contract suite runs against the real adapter too
-      # instead of only the in-memory one it is meant to keep honest.
+      # Both are present, so the suites that would otherwise skip run against
+      # the real thing. The contract tests exist to keep the in-memory adapters
+      # honest, and they can only do that when the real adapter is reachable.
       TEST_REDIS_URL: redis://localhost:6379/0
+      # A service container rather than testcontainers: the runner already has
+      # a healthy Postgres, and starting a second one inside Docker just to
+      # reach the same database costs time for nothing. Locally, with no
+      # TEST_DATABASE_URL set, testcontainers takes over.
+      TEST_DATABASE_URL: postgresql+asyncpg://appcore:appcore@localhost:5432/appcore
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
