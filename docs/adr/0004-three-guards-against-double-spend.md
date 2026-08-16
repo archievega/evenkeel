@@ -41,6 +41,26 @@ changes:
 The database also carries `CHECK (balance_amount >= 0)`. An invariant enforced
 only in the application is one that a migration or a psql session can violate.
 
+**What belongs in a CHECK, and what does not.** The rule is not "validate in the
+database" but "an invariant goes in both places; a policy goes in neither".
+A balance that cannot be negative is an invariant: it is not a decision anyone
+revisits, and code that violates it is broken by definition. A maximum
+description length is policy: product changes it, and encoding it in the schema
+turns a copy edit into a migration.
+
+The performance objection to database constraints does not survive measurement.
+Inserting 20 000 rows into the same table with and without
+`CHECK (amount > 0)`, median of three runs on PostgreSQL 17:
+
+| | time | rows/s |
+| --- | --- | --- |
+| without CHECK | 22.6 ms | 886 047 |
+| with CHECK | 23.6 ms | 846 821 |
+
+4.6%, and no locking of any kind. The real cost of a database constraint is
+operational — it changes only by migration — which is exactly why the
+invariant/policy split is the criterion rather than the write volume.
+
 ## Consequences
 
 Three mechanisms for one property is more than most code needs, and it is

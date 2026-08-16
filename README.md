@@ -86,6 +86,26 @@ GET    /v1/wallets/{id}/entries           ledger history
 GET    /health  /ready  /version          operations
 ```
 
+## How the tests are organised
+
+Not a pyramid. Two questions, asked separately:
+
+| Directory | Question it answers | Needs |
+| --- | --- | --- |
+| `tests/unit` | Do the domain rules and the use-case policy hold? | nothing |
+| `tests/contracts` | Does every adapter of a port behave the same? | Redis, optionally |
+| `tests/http` | Does the application behave correctly end to end? | nothing |
+| `tests/integration` | Does the SQL do what the fake pretends it does? | PostgreSQL |
+
+The split that matters is not unit-versus-integration but *architectural part*
+versus *application as a black box*. `unit` and `contracts` test parts; `http`
+and `integration` test the thing itself. Testcontainers made the second half
+cheap enough that pushing everything into mocks now buys speed by giving up the
+only tests that would have caught a broken adapter.
+
+`make test` runs everything that needs no service; `make test-integration` runs
+the rest.
+
 ## Development
 
 ```bash

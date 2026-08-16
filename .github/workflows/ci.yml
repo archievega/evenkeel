@@ -155,6 +155,16 @@ jobs:
       - name: static security analysis
         run: uv run bandit -r src -c pyproject.toml
 
+      # PEP 751 is an interchange format, not a replacement: no tool has made
+      # pylock.toml its primary lock, so `uv.lock` stays the source of truth and
+      # this is published so nothing here is locked to one installer.
+      - name: export a PEP 751 lock
+        run: uv export --frozen --format pylock.toml -o pylock.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pylock.toml
+          path: pylock.toml
+
   image:
     name: build and scan image
     runs-on: ubuntu-latest

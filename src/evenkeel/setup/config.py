@@ -31,6 +31,12 @@ class AppConfig(BaseModel):
     host: str = "0.0.0.0"  # nosec B104
     port: int = 8000
     workers: int = 1
+    # Off by default, and only honoured with a single worker. Beyond the usual
+    # "reload is for development", uvicorn's watcher has a failure mode that
+    # costs real debugging time: on rapid successive reloads the shutdown half
+    # of the lifespan sometimes does not run. Ours closes the DI container,
+    # which disposes the SQLAlchemy pool — so a skipped shutdown leaks
+    # connections, and the symptom appears far from the cause.
     reload: bool = False
     # Idle upstream connections must be closed by the reverse proxy, not by the
     # app: if the app closes first, in-flight requests surface to clients as
