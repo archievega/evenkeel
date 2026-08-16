@@ -1,11 +1,14 @@
 import asyncio
 from logging.config import fileConfig
+from typing import Any, Literal
 
 from alembic import context
+from alembic.autogenerate.api import AutogenContext
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
 from appcore.infrastructure.sqla.tables import metadata
+from appcore.infrastructure.sqla.types import TzAwareDateTime
 from appcore.setup.config import load_settings
 
 config = context.config
@@ -22,6 +25,23 @@ config.set_main_option(
 target_metadata = metadata
 
 
+def render_item(
+    type_: str, obj: Any, autogen_context: AutogenContext
+) -> str | Literal[False]:
+    """Render custom column types as the SQLAlchemy type they wrap.
+
+    Autogenerate would otherwise emit `appcore.infrastructure.sqla.types.
+    TzAwareDateTime` and add an import of application code to the migration.
+    A migration must keep behaving exactly as it did the day it was written,
+    and one that imports the app changes meaning every time the app does --
+    then fails outright once the type is renamed or moved, taking `upgrade` on
+    a fresh database with it.
+    """
+    if type_ == "type" and isinstance(obj, TzAwareDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -31,6 +51,7 @@ def run_migrations_offline() -> None:
         # or default drifted from the model without anyone noticing.
         compare_type=True,
         compare_server_default=True,
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -42,6 +63,7 @@ def do_run_migrations(connection: object) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()

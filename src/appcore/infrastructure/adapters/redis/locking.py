@@ -12,6 +12,7 @@ from appcore.application.ports import (
     RateLimiterPort,
     RateLimitPolicy,
 )
+from appcore.infrastructure.adapters.redis._errors import translating_redis_errors
 
 # Releasing a lock is compare-and-delete, never a bare DEL: if the TTL expired
 # and another worker already took the lock, a bare DEL would free someone
@@ -61,7 +62,11 @@ class _RedisLock(DistributedLock):
     async def __aenter__(self) -> DistributedLock:
         deadline = time.monotonic() + self._wait_timeout_ms / 1000
         while True:
-            if await self._client.set(self._key, self._token, px=self._ttl_ms, nx=True):
+            async with translating_redis_errors("lock.acquire"):
+                granted = await self._client.set(
+                    self._key, self._token, px=self._ttl_ms, nx=True
+                )
+            if granted:
                 self._acquired = True
                 return self
             if time.monotonic() >= deadline:
@@ -76,7 +81,8 @@ class _RedisLock(DistributedLock):
     ) -> None:
         if not self._acquired:
             return
-        await self._client.eval(_RELEASE_SCRIPT, 1, self._key, self._token)
+        async with translating_redis_errors("lock.release"):
+            await self._client.eval(_RELEASE_SCRIPT, 1, self._key, self._token)
         self._acquired = False
 
 
@@ -113,9 +119,10 @@ class RedisRateLimiter(RateLimiterPort):
         cost: int = 1,
     ) -> RateLimitDecision:
         window_ms = int(policy.window_seconds * 1000)
-        current, ttl_ms = await self._client.eval(
-            _CONSUME_SCRIPT, 1, f"rl:{policy.name}:{key}", cost, window_ms
-        )
+        async with translating_redis_errors("rate_limit.consume"):
+            current, ttl_ms = await self._client.eval(
+                _CONSUME_SCRIPT, 1, f"rl:{policy.name}:{key}", cost, window_ms
+            )
         retry_after = max(0.0, ttl_ms / 1000) if ttl_ms > 0 else 0.0
         if current > policy.limit:
             return RateLimitDecision(

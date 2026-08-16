@@ -10,6 +10,7 @@ from appcore.application.ports.bulkhead import (
     BulkheadPolicy,
     BulkheadPort,
 )
+from appcore.infrastructure.adapters.redis._errors import translating_redis_errors
 
 # A sorted set of live leases scored by expiry. One round trip does all four
 # steps, which is what makes the limit real:
@@ -55,14 +56,15 @@ class _RedisLease(BulkheadLease):
     async def __aenter__(self) -> BulkheadLease:
         deadline = time.monotonic() + self._policy.wait_timeout_ms / 1000
         while True:
-            granted = await self._client.eval(
-                _ACQUIRE_SCRIPT,
-                1,
-                self._key,
-                self._token,
-                self._policy.limit,
-                self._policy.lease_ttl_ms,
-            )
+            async with translating_redis_errors("bulkhead.acquire"):
+                granted = await self._client.eval(
+                    _ACQUIRE_SCRIPT,
+                    1,
+                    self._key,
+                    self._token,
+                    self._policy.limit,
+                    self._policy.lease_ttl_ms,
+                )
             if granted:
                 self._acquired = True
                 return self
@@ -80,7 +82,8 @@ class _RedisLease(BulkheadLease):
             return
         # Releases by token, so a lease that already expired and was reissued to
         # another caller is not removed by its original holder.
-        await self._client.eval(_RELEASE_SCRIPT, 1, self._key, self._token)
+        async with translating_redis_errors("bulkhead.release"):
+            await self._client.eval(_RELEASE_SCRIPT, 1, self._key, self._token)
         self._acquired = False
 
 

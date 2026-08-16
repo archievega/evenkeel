@@ -3,6 +3,7 @@ import json
 from redis.asyncio import Redis
 
 from appcore.application.ports import IdempotencyRecord, IdempotencyStore
+from appcore.infrastructure.adapters.redis._errors import translating_redis_errors
 
 
 class RedisIdempotencyStore(IdempotencyStore):
@@ -17,7 +18,8 @@ class RedisIdempotencyStore(IdempotencyStore):
         self._client = client
 
     async def get(self, key: str) -> IdempotencyRecord | None:
-        raw = await self._client.get(f"idem:{key}")
+        async with translating_redis_errors("idempotency.get"):
+            raw = await self._client.get(f"idem:{key}")
         if raw is None:
             return None
         payload = json.loads(raw)
@@ -30,11 +32,12 @@ class RedisIdempotencyStore(IdempotencyStore):
     async def put(self, record: IdempotencyRecord, *, ttl_seconds: int) -> None:
         if ttl_seconds <= 0:
             return
-        await self._client.set(
-            f"idem:{record.key}",
-            json.dumps(
-                {"fingerprint": record.fingerprint, "response": record.response},
-                sort_keys=True,
-            ),
-            ex=ttl_seconds,
-        )
+        async with translating_redis_errors("idempotency.put"):
+            await self._client.set(
+                f"idem:{record.key}",
+                json.dumps(
+                    {"fingerprint": record.fingerprint, "response": record.response},
+                    sort_keys=True,
+                ),
+                ex=ttl_seconds,
+            )

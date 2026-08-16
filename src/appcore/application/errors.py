@@ -9,6 +9,7 @@ class ApplicationErrorCode(StrEnum):
     WALLET_BUSY = "WALLET_BUSY"
     IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
     RATE_LIMITED = "RATE_LIMITED"
+    DEPENDENCY_UNAVAILABLE = "DEPENDENCY_UNAVAILABLE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -21,6 +22,9 @@ APPLICATION_ERROR_MESSAGES: dict[ApplicationErrorCode, str] = {
         "Idempotency key was already used with a different payload"
     ),
     ApplicationErrorCode.RATE_LIMITED: "Too many requests",
+    ApplicationErrorCode.DEPENDENCY_UNAVAILABLE: (
+        "A required dependency is unavailable, retry shortly"
+    ),
     ApplicationErrorCode.INTERNAL_ERROR: "Internal server error",
 }
 
@@ -69,6 +73,18 @@ class ConflictError(ApplicationError):
 
 class RateLimitedError(ApplicationError):
     default_status_code = 429
+
+
+class DependencyUnavailableError(ApplicationError):
+    """An infrastructure dependency could not be reached.
+
+    Distinct from `InternalError`: this one is transient and retryable, which is
+    what 503 tells a client and a load balancer. Adapters raise it instead of
+    letting a driver exception escape, so application code can react to "Redis
+    is down" without importing `redis`.
+    """
+
+    default_status_code = 503
 
 
 class InternalError(ApplicationError):

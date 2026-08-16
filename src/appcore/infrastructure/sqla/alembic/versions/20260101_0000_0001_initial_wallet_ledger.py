@@ -32,7 +32,14 @@ def upgrade() -> None:
         # The application refuses to overdraw, and so does the database. An
         # invariant enforced in only one of the two is an invariant that a
         # background job, a migration or a psql session can violate.
-        sa.CheckConstraint("balance_amount >= 0", name="ck_wallets_balance_non_negative"),
+        #
+        # The name here is the BARE one. MetaData carries a naming convention of
+        # `ck_%(table_name)s_%(constraint_name)s`, and it is applied to whatever
+        # is passed here -- so spelling out the full name yields
+        # `ck_wallets_ck_wallets_balance_non_negative` in the database, which
+        # then shows up forever as phantom drift and breaks any later
+        # `drop_constraint` that uses the name you thought you gave it.
+        sa.CheckConstraint("balance_amount >= 0", name="balance_non_negative"),
         sa.PrimaryKeyConstraint("id", name="pk_wallets"),
     )
     # Composite (owner_id, id): every wallet listing is scoped by owner and
@@ -49,7 +56,7 @@ def upgrade() -> None:
         sa.Column("balance_after", sa.Numeric(20, 2), nullable=False),
         sa.Column("description", sa.Text(), server_default="", nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
-        sa.CheckConstraint("amount > 0", name="ck_ledger_entries_amount_positive"),
+        sa.CheckConstraint("amount > 0", name="amount_positive"),
         sa.ForeignKeyConstraint(
             ["wallet_id"],
             ["wallets.id"],

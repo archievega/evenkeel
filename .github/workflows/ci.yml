@@ -93,6 +93,15 @@ jobs:
       - name: upgrade again
         run: uv run alembic upgrade head
 
+      # Two heads means two branches added migrations independently and nobody
+      # merged them. `upgrade head` then fails on a fresh database while working
+      # fine on every machine that already ran one of the branches.
+      - name: exactly one migration head
+        run: |
+          heads=$(uv run alembic heads | grep -c . || true)
+          echo "heads: $heads"
+          test "$heads" -eq 1
+
       # Catches the model change that never got a migration -- the drift that
       # only surfaces when a production query hits a column that is not there.
       - name: no pending schema drift
