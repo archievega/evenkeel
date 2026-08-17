@@ -164,3 +164,44 @@ def test_an_identity_provider_that_is_not_a_known_one_is_refused(value: str) -> 
     problems = production_config_problems(settings)
 
     assert any("identity_provider" in problem for problem in problems)
+
+
+@pytest.mark.cwe(1188)
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("jwks_url", "https://"), ("jwks_url", "HTTP://issuer.example/jwks.json")],
+)
+def test_a_key_set_url_that_cannot_work_is_refused(field: str, value: str) -> None:
+    """Both boot and then fail on every request: a scheme with no host is a
+    permanent 503, and the plaintext check was case-sensitive while the scheme
+    is not."""
+    settings = hardened()
+    setattr(settings.identity, field, value)
+
+    assert production_config_problems(settings)
+
+
+@pytest.mark.cwe(1188)
+def test_an_empty_algorithm_allowlist_is_refused() -> None:
+    """PyJWT is handed an empty allowlist and nothing can match it, so the
+    service boots and refuses every token."""
+    settings = hardened()
+    settings.identity.algorithms = ()
+
+    problems = production_config_problems(settings)
+
+    assert any("algorithms" in problem for problem in problems)
+
+
+@pytest.mark.cwe(1188)
+@pytest.mark.parametrize("scheme", ["http", "HTTP", "Http"])
+def test_a_plaintext_risk_provider_is_refused_whatever_the_case(scheme: str) -> None:
+    """A denylist, unlike the `https://` check above, so the case matters: the
+    request carries an owner id, an amount and a bearer token."""
+    settings = hardened()
+    settings.risk.provider = "http"
+    settings.risk.base_url = f"{scheme}://provider.example"
+
+    problems = production_config_problems(settings)
+
+    assert any("base_url" in problem for problem in problems)

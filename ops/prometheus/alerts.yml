@@ -19,9 +19,7 @@ groups:
         annotations:
           summary: The API is not answering scrapes
           description: >-
-            Prometheus cannot reach {{ $labels.instance }}. Every other rule
-            here goes quiet when this one fires, because a service that is not
-            scraped produces no rates to compare.
+            Prometheus cannot reach {{ $labels.instance }}.
 
       - alert: EvenkeelHighErrorRatio
         expr: |
@@ -35,9 +33,7 @@ groups:
         annotations:
           summary: More than 5% of requests are 5xx
           description: >-
-            {{ $value | humanizePercentage }} of requests over the last five
-            minutes. The second clause is a volume gate: without it a single
-            failed request on an otherwise idle service is a ratio of 1.0.
+            {{ $value | humanizePercentage }} of requests over five minutes.
 
       - alert: EvenkeelUnhandledExceptions
         expr: sum(rate(evenkeel_http_request_failures_total[5m])) > 0
@@ -66,17 +62,12 @@ groups:
         annotations:
           summary: p99 request latency is above one second
           description: >-
-            {{ $value | humanizeDuration }} at p99. Ten minutes rather than
-            five: a p99 computed from a handful of requests swings on one slow
-            one, and the histogram's top bucket is 10s so the estimate is only
-            meaningful while traffic is steady.
+            {{ $value | humanizeDuration }} at p99.
 
   - name: evenkeel-guards
     rules:
-      # The four rules below are the ones this service exists to demonstrate.
       # A client sees 503 whether the call timed out, was shed by the bulkhead,
-      # or ran out of retry budget; these separate them, because the fix is
-      # different for each.
+      # or ran out of budget. These separate them; the fix differs for each.
       - alert: EvenkeelDependencyDegraded
         expr: |
           sum by (service) (rate(evenkeel_external_call_total{outcome!="success"}[5m]))
@@ -121,9 +112,8 @@ groups:
         annotations:
           summary: More than 20% of movements are being rate limited
           description: >-
-            Either a client is retrying hard or the limit is set below what
-            normal use needs. Worth knowing because a load run once reported
-            88% `429` and read, at a glance, as a load result.
+            Either a client is retrying hard, or the limit is below what
+            normal use needs.
 
       - alert: EvenkeelLockContention
         expr: |

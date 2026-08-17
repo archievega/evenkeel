@@ -102,9 +102,8 @@ every retry it invited answered `409 MOVEMENT_IN_PROGRESS` until the key expired
 a day later. Told it failed, then stopped from trying again.
 
 Two other documents had upgraded this ADR's careful "does not double-spend" into
-"cannot produce a 503", and cited tests that never made `confirm` raise. Found by
-an agent asked to attack an unrelated design, and reproduced before it was
-believed: balance 100 → 90, response 503, retry 409.
+"cannot produce a 503", and cited tests that never made `confirm` raise.
+Reproduced before it was believed: balance 100 → 90, response 503, retry 409.
 
 `confirm` failures are now logged, counted on the outbound call metric as
 `service="idempotency"`, and swallowed. The cost is the receipt: a retry inside

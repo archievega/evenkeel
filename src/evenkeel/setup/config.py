@@ -306,8 +306,14 @@ def production_config_problems(settings: Settings) -> list[str]:
                 problems.append(
                     f"identity_provider is 'jwt' but identity.{field} is empty"
                 )
-        url = settings.identity.jwks_url
-        if url and not url.startswith("https://"):
+        if not settings.identity.algorithms:
+            # Boots, and refuses every token. PyJWT is handed an empty
+            # allowlist and nothing can match it.
+            problems.append("identity.algorithms is empty, so no token can verify")
+        url = settings.identity.jwks_url.lower()
+        if url in ("https://", "http://"):
+            problems.append("identity.jwks_url is a scheme with no host")
+        elif url and not url.startswith("https://"):
             problems.append(
                 "identity.jwks_url is not https, so the signing keys are "
                 "whatever the network says they are"
@@ -329,7 +335,7 @@ def production_config_problems(settings: Settings) -> list[str]:
         problems.append(
             "database.echo prints bound parameters, which no log redaction can filter"
         )
-    if settings.risk.provider == HTTP_RISK and settings.risk.base_url.startswith(
+    if settings.risk.provider == HTTP_RISK and settings.risk.base_url.lower().startswith(
         "http://"
     ):
         # Not pedantry: this request carries an owner id, an amount and a bearer

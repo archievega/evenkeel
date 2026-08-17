@@ -105,8 +105,8 @@ def forge_hs256(claims: dict[str, object], *, secret: str) -> str:
 
 
 class Served:
-    """A JWKS endpoint with a request counter, a latency dial and a segment
-    size — the last of which is what a loopback test otherwise never varies."""
+    """A JWKS endpoint with dials, including a segment size — the thing a
+    loopback test otherwise never varies."""
 
     def __init__(self, document: dict[str, object]) -> None:
         self.document = document

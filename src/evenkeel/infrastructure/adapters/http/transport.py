@@ -21,6 +21,7 @@ from typing import Any
 
 import aiohttp
 import structlog
+from multidict import CIMultiDict
 
 from evenkeel.application.ports import BulkheadPolicy, BulkheadPort, MetricsPort
 from evenkeel.logging import get_logger
@@ -118,7 +119,10 @@ async def open_session(
             limit_per_host=policy.connection_limit,
             ttl_dns_cache=policy.dns_cache_seconds,
         ),
-        headers={"User-Agent": "evenkeel-outbound", **headers},
+        # Merged case-insensitively, because `aiohttp` stores headers in a
+        # `CIMultiDict` and a plain dict merge would put a second `User-Agent`
+        # on the wire — which aiohttp's own server rejects as a duplicate.
+        headers=CIMultiDict({"User-Agent": "evenkeel-outbound", **headers}),
         # Every request passes its own timeout; this is the backstop for any
         # path that forgets. aiohttp's default is 5 minutes, which on a request
         # path is indistinguishable from no timeout at all.
@@ -372,6 +376,9 @@ async def read_capped(stream: aiohttp.StreamReader, limit: int) -> bytes:
     """
     chunks: list[bytes] = []
     size = 0
+    # A negative limit degrades `read(n)` into read-to-EOF, which is the cap
+    # inverted rather than absent.
+    limit = max(0, limit)
     while chunk := await stream.read(limit - size):
         chunks.append(chunk)
         size += len(chunk)

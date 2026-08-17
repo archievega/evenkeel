@@ -199,23 +199,29 @@ _CORRELATION_SHAPE = re.compile(r"[A-Za-z0-9._:+/=-]{1,128}")
 
 
 def _inbound_correlation_id(scope: Scope) -> str | None:
-    """A caller's id, if it is one this service can safely carry.
+    r"""A caller's id, if it is one this service can safely carry.
 
-    Whatever arrives here is echoed into a response header, bound into every
-    log line for the request, and forwarded to providers as an outbound header.
-    Taken verbatim it was all three of those at once: `\r\n` in the value
-    reached the response headers and let an unauthenticated caller write their
-    own lines into the log; a 10 KB value was copied into every one of them; and
-    the outbound copy raised out of `aiohttp` as a 500.
+    Whatever arrives is echoed into a response header, bound into every log line
+    for the request, and forwarded to providers as an outbound header. Taken
+    verbatim, a `\r\n` in the value reached the response headers and let an
+    unauthenticated caller write their own log lines. Raw string, incidentally,
+    because the first version of this docstring put a real CR in the sentence
+    warning about them.
 
-    A value that does not fit the shape is replaced by a fresh id rather than
-    refused. A malformed trace header is not a reason to fail a request.
+    The *last* valid value wins. Taking the first let a client shadow the id its
+    own proxy had already set, or destroy the trace by sending a malformed one
+    ahead of it.
+
+    A value that does not fit is replaced by a fresh id rather than refused: a
+    bad trace header is not a reason to fail a request.
     """
+    found: str | None = None
     for name, value in scope.get("headers", []):
         if name.lower() == _CORRELATION_HEADER_BYTES:
-            decoded: str = value.decode("latin-1")
-            return decoded if _CORRELATION_SHAPE.fullmatch(decoded) else None
-    return None
+            decoded = value.decode("latin-1")
+            if _CORRELATION_SHAPE.fullmatch(decoded):
+                found = decoded
+    return found
 
 
 def _build_label_map(router: object, prefix: str = "") -> dict[int, str]:

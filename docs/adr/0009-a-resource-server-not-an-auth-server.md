@@ -47,10 +47,9 @@ Three decisions inside that are not obvious:
 classic way a verifier accepts `none`, and accepts HMAC signed with the public
 RSA key as the shared secret.
 
-Worth being precise about where that defence actually lives, because the first
-draft of this file got it wrong: on PyJWT 2.13 the library itself refuses a
-header algorithm that disagrees with the JWKS key's own, so the two famous
-attacks are stopped there rather than by our allowlist. The allowlist is still
+Worth being precise about where that defence lives: on PyJWT 2.13 the library
+itself refuses a header algorithm that disagrees with the JWKS key's own, so the
+two famous attacks are stopped there rather than by our allowlist. The allowlist is still
 load-bearing — it is what a deployment sets when its issuer signs with `ES256`,
 and it is what would stop the attacks on an older PyJWT — so `pyproject.toml`
 pins `>=2.13` and the test that proves the allowlist is honoured configures

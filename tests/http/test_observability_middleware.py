@@ -228,3 +228,23 @@ async def test_a_well_formed_correlation_id_is_kept(client: AsyncClient) -> None
     response = await client.get("/boom", headers={"X-Correlation-Id": supplied})
 
     assert response.headers["x-correlation-id"] == supplied
+
+
+@pytest.mark.cwe(93)
+async def test_the_last_valid_correlation_id_wins(client: AsyncClient) -> None:
+    """A proxy sets the id, then the client sends its own ahead of it.
+
+    Taking the first match let a caller pin every log line to a value they
+    chose, or destroy the proxy's trace entirely by sending a malformed one
+    first — the fresh id substituted for the bad value replaced the good one
+    that arrived after it.
+    """
+    response = await client.get(
+        "/boom",
+        headers=[
+            ("X-Correlation-Id", "bad value with spaces"),
+            ("X-Correlation-Id", "proxy-issued-id"),
+        ],
+    )
+
+    assert response.headers["x-correlation-id"] == "proxy-issued-id"
