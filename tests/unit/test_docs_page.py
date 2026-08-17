@@ -11,6 +11,7 @@ without a matching hash fails here rather than as a blank page nobody notices.
 
 import base64
 import hashlib
+import json
 import os
 import re
 import sys
@@ -93,15 +94,43 @@ def test_the_published_page_does_not_offer_a_request_it_cannot_make() -> None:
 
     Scalar defaults its server to the relative entry in `servers`, which on a
     static site resolves to the documentation host — so pressing Send returned
-    GitHub's own 404 page. Ordering localhost first was not enough. And even
-    with the right port a browser would refuse the cross-origin request, since
-    the application ships no CORS middleware, so the button cannot work here
-    under any configuration.
+    GitHub's own 404. Ordering localhost first was not enough, and the right
+    port would not have helped either: a browser refuses the cross-origin
+    request to localhost, since the application ships no CORS middleware.
 
-    The same document served by the running app at `/scalar` keeps it.
+    Verified in a browser against the published page, which is the only place
+    it can be: both entry points — "Test Request" and "Open API Client" —
+    are gone, and the client's own Send has no layout box. The same document
+    served by the running app at `/scalar` keeps all of it.
     """
-    page = PAGE
+    configuration = json.loads(
+        re.search(r"data-configuration='([^']+)'", PAGE).group(1)  # type: ignore[union-attr]
+    )
 
-    assert '"hideTestRequestButton":true' in page
-    assert '"hideClientButton":true' in page
-    assert "localhost:58000/scalar" in page, "say where the buttons do work"
+    assert configuration["hideTestRequestButton"] is True
+    assert configuration["hideClientButton"] is True
+    assert "localhost:58000/scalar" in PAGE, "say where the buttons do work"
+
+
+@pytest.mark.skipif(
+    os.getenv("CI") is None and os.getenv("CHECK_SRI") is None,
+    reason="reaches the CDN; runs in CI or with CHECK_SRI=1",
+)
+def test_every_configuration_key_is_one_the_pinned_scalar_reads() -> None:
+    """A misspelled option is not an error, it is a no-op.
+
+    `hideTestRequestButton` was set and the button stayed, because it gates the
+    operation panels and not the API client — found by opening the published
+    page rather than by reading the config back. A renamed option across a
+    version bump fails exactly as quietly, so the names are checked against the
+    bundle that will actually run.
+    """
+    configuration = json.loads(
+        re.search(r"data-configuration='([^']+)'", PAGE).group(1)  # type: ignore[union-attr]
+    )
+    with urllib.request.urlopen(CDN, timeout=30) as response:
+        bundle = response.read().decode("utf-8", "replace")
+
+    unknown = [key for key in configuration if f"{key}:" not in bundle]
+
+    assert not unknown, f"scalar {SCALAR_VERSION} does not read: {unknown}"
