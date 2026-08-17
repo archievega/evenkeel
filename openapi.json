@@ -1204,7 +1204,7 @@
   "servers": [
     {
       "description": "docker compose up",
-      "url": "http://localhost:8000"
+      "url": "http://localhost:58000"
     },
     {
       "description": "This deployment",

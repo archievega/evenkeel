@@ -55,11 +55,15 @@ PAGE = """<!doctype html>
       Errors are <a href="https://www.rfc-editor.org/rfc/rfc9457">RFC 9457</a>
       problem documents &mdash; branch on <code>code</code>, never on
       <code>title</code>.
+      <br />
+      This is a reference, not a console: there is no hosted API behind it, so
+      the request buttons are off. <code>docker compose up</code> gives you the
+      same document at <code>localhost:58000/scalar</code>, with them on.
     </div>
     <script
       id="api-reference"
       data-url="openapi.json?v=__SPEC_HASH__"
-      data-configuration='{"theme":"purple","darkMode":true,"hideDownloadButton":false}'
+      data-configuration='{"theme":"purple","darkMode":true,"hideDownloadButton":false,"hideTestRequestButton":true,"hideClientButton":true}'
     ></script>
     <!-- Pinned and integrity-checked. An unpinned CDN tag on a public page is
          a standing invitation: whoever controls that URL controls what runs in

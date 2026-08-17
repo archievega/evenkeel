@@ -162,13 +162,14 @@ def create_app(
         description=API_DESCRIPTION,
         version=os.getenv("APP_VERSION", version("evenkeel")),
         openapi_tags=TAGS_METADATA,
-        # Ordered for the published reference, where a relative URL resolves
-        # to the documentation host and "try it" quietly posts at GitHub Pages.
-        # There is no hosted API to point at — the one a reader can actually
-        # reach is the one they started — so localhost goes first and the
-        # relative entry stays for anyone reading the docs off the service.
+        # The relative entry is for a reader looking at `/scalar` on a running
+        # service, where it is the correct answer. On the published reference it
+        # resolves to the documentation host, and ordering localhost first was
+        # not enough to stop Scalar choosing it — "try it" posted at GitHub
+        # Pages and returned GitHub's own 404. The static page therefore ships
+        # with the request button turned off; see `tools/build_docs.py`.
         servers=[
-            {"url": "http://localhost:8000", "description": "docker compose up"},
+            {"url": "http://localhost:58000", "description": "docker compose up"},
             {"url": "/", "description": "This deployment"},
         ],
         # `debug` is never passed through. Starlette's ServerErrorMiddleware

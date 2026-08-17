@@ -86,3 +86,22 @@ def test_the_hash_matches_the_file_that_will_be_served() -> None:
     expected = f"sha384-{base64.b64encode(digest).decode()}"
 
     assert expected in PAGE, f"hash does not match {CDN}"
+
+
+def test_the_published_page_does_not_offer_a_request_it_cannot_make() -> None:
+    """There is no hosted API behind the published reference.
+
+    Scalar defaults its server to the relative entry in `servers`, which on a
+    static site resolves to the documentation host — so pressing Send returned
+    GitHub's own 404 page. Ordering localhost first was not enough. And even
+    with the right port a browser would refuse the cross-origin request, since
+    the application ships no CORS middleware, so the button cannot work here
+    under any configuration.
+
+    The same document served by the running app at `/scalar` keeps it.
+    """
+    page = PAGE
+
+    assert '"hideTestRequestButton":true' in page
+    assert '"hideClientButton":true' in page
+    assert "localhost:58000/scalar" in page, "say where the buttons do work"

@@ -14,6 +14,7 @@ than on job names, since the two systems group jobs differently and neither
 grouping is wrong.
 """
 
+import json
 import pathlib
 import re
 
@@ -104,3 +105,11 @@ def test_the_smoke_jobs_probe_the_port_compose_publishes() -> None:
         probes = set(re.findall(r"(?:localhost|127\.0\.0\.1):(\d+)/ready", pipeline))
         assert probes, f"{name} no longer probes readiness"
         assert probes == {port}, f"{name} probes {probes}, compose publishes {port}"
+
+    # The fourth place the number lives, and the one a reader copies a curl
+    # from. It kept `8000` through the move and nothing noticed.
+    spec = json.loads((ROOT / "openapi.json").read_text())
+    local = [s["url"] for s in spec["servers"] if "localhost" in s["url"]]
+    assert local == [f"http://localhost:{port}"], (
+        f"openapi.json advertises {local}, compose publishes {port}"
+    )
