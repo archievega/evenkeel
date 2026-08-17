@@ -320,6 +320,11 @@ full rerun to find the next. Colour follows [NO_COLOR](https://no-color.org) and
 switches itself off when the output is not a terminal, so a CI log does not fill
 with escape codes.
 
+[CONTRIBUTING.md](CONTRIBUTING.md) is what a change has to clear to land here —
+a test you have watched fail, a receipt for every claim, and a number that comes
+from a command. Vulnerabilities go through [SECURITY.md](SECURITY.md) rather
+than an issue.
+
 ## Status
 
 In place: the core and the wallet slice, the CI pipeline the badge points at,

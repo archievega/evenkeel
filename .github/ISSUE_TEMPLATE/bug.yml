@@ -1,0 +1,41 @@
+name: Bug
+description: Something behaves differently from what the repository claims
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A claim in the README, an ADR or `docs/SECURITY_CONTROLS.md` that the
+        code does not honour counts as a bug here, and is the most useful kind
+        to report — it is the failure this repository is least able to see by
+        itself.
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: What you ran
+      description: Commands, config, and the smallest input that shows it.
+      placeholder: |
+        make observe
+        make load
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and where it says so
+      description: >-
+        Quote it if a document makes the promise — a file and a line is enough.
+        Verified behaviour and documented behaviour drifting apart is the thing
+        worth catching.
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Output, a log line, or a screenshot. Redact tokens.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: "`git rev-parse --short HEAD`"
+    validations: { required: false }

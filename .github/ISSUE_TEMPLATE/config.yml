@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/archievega/evenkeel/security/advisories/new
+    about: Report privately. Not as an issue — see SECURITY.md.

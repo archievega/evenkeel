@@ -1,0 +1,32 @@
+name: Change proposal
+description: Something the template should do differently
+labels: [proposal]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two answers are cheap and honest here: "already decided, see the ADR"
+        and "no". A template earns its keep by being small, so a proposal is
+        judged on what it costs a reader, not only on what it adds.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem, as something that happened
+      description: >-
+        Not "it would be good to have X". What went wrong, to whom, and what it
+        cost. `docs/adr/README.md` asks the same of every decision record.
+    validations: { required: true }
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you considered and rejected
+      description: Including doing nothing.
+    validations: { required: true }
+  - type: textarea
+    id: cost
+    attributes:
+      label: What it costs
+      description: >-
+        New dependency, new process, new configuration, more to read. Say so
+        plainly; the answer may still be yes.
+    validations: { required: false }
