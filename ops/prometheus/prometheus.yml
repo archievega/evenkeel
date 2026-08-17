@@ -1,7 +1,7 @@
 # Scrape settings for a local run, not for production. A five-second interval
 # is far too aggressive for a real deployment and exactly right here: a load run
-# lasts twenty seconds, and at the usual fifteen-second interval it produces
-# barely more than one point per series.
+# lasts thirty seconds, and at the usual fifteen-second interval that is two
+# points per series.
 global:
   scrape_interval: 5s
   evaluation_interval: 5s

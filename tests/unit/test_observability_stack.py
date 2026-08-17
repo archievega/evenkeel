@@ -196,9 +196,9 @@ def test_the_latency_buckets_sit_on_the_timeouts_that_shape_them() -> None:
 
     That shipped. The boundaries went `0.5, 1.0, 2.5`, the entire slow tail of a
     degraded-provider run landed in the one bucket a second and a half wide, and
-    the dashboard reported p99 = 2.32s for a run whose slowest request k6
-    measured at 1.70s client-side — an estimate above every request that
-    happened, on a panel that looked perfectly reasonable.
+    the panel reported a p99 above the slowest request the load generator
+    measured on the same run — an estimate above every request that happened, on
+    a panel that looked perfectly reasonable.
 
     Slow requests pile up just under one guard or the other, so the boundaries
     belong on the guards. This fails if someone retunes the transport and leaves

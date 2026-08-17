@@ -3,8 +3,8 @@
 UV ?= uv
 SRC := src tests
 COMPOSE_NETWORK ?= evenkeel_default
-GRAFANA_PORT ?= 3000
-PROMETHEUS_PORT ?= 9090
+export GRAFANA_PORT ?= 3000
+export PROMETHEUS_PORT ?= 9090
 # The degraded-provider profile, because a dashboard of a healthy service shows
 # nothing that a dashboard of any healthy service would not.
 RISK_LATENCY_MS ?= 700

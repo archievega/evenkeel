@@ -30,7 +30,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**A client sees `503` whether the outbound call timed out, was shed by the concurrency cap, or ran out of retry budget.**\nThe second row separates them, and that is what this dashboard is for \u2014 the first and third rows are ordinary RED panels that\nany service has.\n\nEmpty panels mean no traffic, not a broken stack: metrics are off unless `APP__OBSERVABILITY__METRICS_ENABLED=true`.\nTo fill it, run the load profile in [tools/load/README.md](https://github.com/) \u2014 one command, twenty seconds."
+        "content": "**A client sees `503` whether the outbound call timed out, was shed by the concurrency cap, or ran out of retry budget.** The second row separates them; the rest is ordinary RED.\n\nEmpty panels mean no traffic, not a broken stack: metrics are off unless `APP__OBSERVABILITY__METRICS_ENABLED=true`. `make observe && make load` fills them, and the seconds you see belong to a stub deliberately stalling for 700ms \u2014 not to this service."
       }
     },
     {

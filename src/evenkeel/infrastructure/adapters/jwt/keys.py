@@ -38,6 +38,9 @@ class JwksPolicy:
     min_refresh_seconds: float = 30.0
     # How long keys may outlive their TTL while the provider is unreachable.
     max_stale_seconds: float = 3600.0
+    # Its own bound. Left to the session backstop this was five seconds, with
+    # every authentication queued behind one cold-start fetch.
+    timeout_ms: int = 5_000
 
 
 class _Unusable(Exception):
@@ -56,12 +59,15 @@ async def _translating_jwks_errors() -> AsyncIterator[None]:
     try:
         yield
     except (_Unusable, TimeoutError, aiohttp.ClientError, PyJWTError) as exc:
-        log.warning(
-            "jwks_unavailable", error_type=type(exc).__name__, reason=str(exc)[:200]
-        )
-        raise DependencyUnavailableError(
-            ApplicationErrorCode.DEPENDENCY_UNAVAILABLE, details={"dependency": "jwks"}
-        ) from exc
+        raise _unavailable(f"{type(exc).__name__}: {str(exc)[:120]}") from exc
+
+
+def _unavailable(reason: str) -> DependencyUnavailableError:
+    # The reason is logged, never returned.
+    log.warning("jwks_unavailable", reason=reason)
+    return DependencyUnavailableError(
+        ApplicationErrorCode.DEPENDENCY_UNAVAILABLE, details={"dependency": "jwks"}
+    )
 
 
 class JwksCache:
@@ -71,6 +77,7 @@ class JwksCache:
         self._keys: dict[str, PyJWK] = {}
         self._fetched_at = -math.inf
         self._last_attempt = -math.inf
+        self._last_attempt_failed = False
         self._lock = asyncio.Lock()
 
     async def get(self, kid: str) -> PyJWK | None:
@@ -92,19 +99,38 @@ class JwksCache:
             if key is not None and not self._stale():
                 return key
             if time.monotonic() - self._last_attempt < self._policy.min_refresh_seconds:
+                # Throttled, so this caller learns nothing new — but what it
+                # should answer depends on how the last attempt went, and
+                # returning `key` unconditionally ignored that. If the provider
+                # answered, a missing `kid` is a definitive "not in this set".
+                # If it failed, this is an outage: serve a cached key inside the
+                # grace ceiling and otherwise say so, because reporting a bad
+                # token for a good one makes a client discard a working session.
+                if self._last_attempt_failed:
+                    return self._serve_within_grace(key)
                 return key
 
             try:
                 await self._refresh()
             except DependencyUnavailableError:
-                if key is None or self._age() >= self._policy.max_stale_seconds:
+                self._last_attempt_failed = True
+                if key is None:
                     raise
-                # Expiry is a rotation hint, not a revocation — up to a ceiling,
-                # past which a key nobody has been able to confirm stops being
-                # an answer.
-                log.warning("jwks_serving_stale_keys")
-                return key
+                return self._serve_within_grace(key)
+            self._last_attempt_failed = False
             return self._keys.get(kid)
+
+    def _serve_within_grace(self, key: PyJWK | None) -> PyJWK:
+        """A cached key, while the provider's last word was a failure.
+
+        Expiry is a rotation hint rather than a revocation, so a key already
+        held keeps verifying — up to a ceiling, past which a key nobody has been
+        able to confirm stops being an answer.
+        """
+        if key is None or self._age() >= self._policy.max_stale_seconds:
+            raise _unavailable("no key inside the grace ceiling")
+        log.warning("jwks_serving_stale_keys", age_seconds=round(self._age()))
+        return key
 
     def _age(self) -> float:
         return time.monotonic() - self._fetched_at
@@ -117,6 +143,7 @@ class JwksCache:
         async with _translating_jwks_errors():
             async with self._session.get(
                 self._policy.url,
+                timeout=aiohttp.ClientTimeout(total=self._policy.timeout_ms / 1000),
                 # Not followed, and this is the one place it matters most: the
                 # answer to this request is the set of keys that decide who
                 # every caller is. A `302` from the issuer's endpoint would let
@@ -134,14 +161,25 @@ class JwksCache:
             if not isinstance(entries, list):
                 raise _Unusable("not a key set")
 
-            keys: dict[str, PyJWK] = {}
             # An empty list is the issuer revoking everything, and it is an
             # answer rather than an outage: raising would send it to the
             # stale-key path above, where the withdrawn keys would keep working.
-            # PyJWKSet drops entries it cannot build and keys published for
-            # encryption rather than signatures, which is the RFC 7517 `use`
-            # rule and the kind of thing worth not rewriting.
-            for key in PyJWKSet(entries).keys if entries else []:
+            #
+            # `use` is filtered here, not by `PyJWKSet`, which never reads it —
+            # `PyJWKClient` does, and that is the class this adapter replaces.
+            # Without this an encryption key published in the same document
+            # verifies signatures (RFC 7517 §4.2).
+            #
+            # The `isinstance` guard is not paranoia: `PyJWKSet` calls `.get` on
+            # each entry, so `{"keys": [1]}` raised `AttributeError` past the
+            # translation above and answered 500.
+            signing = [
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("use") in (None, "sig")
+            ]
+            keys: dict[str, PyJWK] = {}
+            for key in PyJWKSet(signing).keys if signing else []:
                 # First wins: last-wins would let one appended duplicate
                 # blackhole a live key id, and valid tokens would just stop.
                 if key.key_id and key.key_id not in keys:

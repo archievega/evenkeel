@@ -276,11 +276,13 @@ class JsonHttpTransport:
                 )
                 retry_after_ms = _retry_after_ms(response.headers.get("Retry-After"))
 
-                if len(raw) > self._policy.max_response_bytes:
-                    return (
-                        JsonResponse(response.status, None, Failure.OVERSIZED),
-                        retry_after_ms,
-                    )
+                # Status before size. The other way round, a 5xx or 429 whose
+                # body carried a large error page was reported `OVERSIZED` and
+                # lost both its retry and its `Retry-After`; and whoever
+                # controlled a redirecting endpoint could pad the body to hide
+                # the handover from the `REDIRECTED` signal that exists to show
+                # it. `read_capped` made this reachable — a single buffered read
+                # rarely returned more than one segment.
                 if 300 <= response.status < 400:
                     return (
                         JsonResponse(response.status, None, Failure.REDIRECTED),
@@ -296,7 +298,12 @@ class JsonHttpTransport:
                         JsonResponse(response.status, None, Failure.CLIENT_ERROR),
                         retry_after_ms,
                     )
-                body = _decode(raw)
+                if len(raw) > self._policy.max_response_bytes:
+                    return (
+                        JsonResponse(response.status, None, Failure.OVERSIZED),
+                        retry_after_ms,
+                    )
+                body = decode_object(raw)
                 if body is None:
                     return (
                         JsonResponse(response.status, None, Failure.MALFORMED),
@@ -374,11 +381,6 @@ async def read_capped(stream: aiohttp.StreamReader, limit: int) -> bytes:
 
 
 def decode_object(raw: bytes) -> dict[str, Any] | None:
-    """JSON that is an object, or `None`. Anything else is not our shape."""
-    return _decode(raw)
-
-
-def _decode(raw: bytes) -> dict[str, Any] | None:
     try:
         decoded = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):

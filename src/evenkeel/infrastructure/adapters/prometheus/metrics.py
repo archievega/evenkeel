@@ -23,11 +23,11 @@ from evenkeel.application.ports import MetricsPort
 #
 # Putting them there is the whole point, and the first version did not. It went
 # 0.5, 1.0, 2.5, so the entire tail landed in one bucket a second and a half
-# wide. `histogram_quantile` interpolates linearly inside a bucket, so it
-# reported p99 = 2.32s on a run whose slowest request k6 measured at 1.70s
-# client-side — an estimate larger than anything that happened. A histogram is
-# only as honest as its boundaries, and a wide bucket does not read as
-# uncertainty, it reads as a number.
+# wide. `histogram_quantile` interpolates linearly inside a bucket, so the panel
+# reported a p99 above the slowest request k6 measured client-side on the same
+# run — an estimate larger than anything that happened. A histogram is only as
+# honest as its boundaries, and a wide bucket does not read as uncertainty, it
+# reads as a number.
 _REQUEST_BUCKETS = (
     0.005,
     0.01,

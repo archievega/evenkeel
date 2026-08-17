@@ -73,9 +73,11 @@ withdrawn keys from cache.
 
 ## Consequences
 
-The template can be deployed for real. Point it at any OIDC provider — Keycloak,
-Auth0, Cognito, an internal one — and it authenticates against it. That is a
-configuration change, no code.
+The template can be deployed for real. Point it at an OIDC provider whose `sub`
+is a canonical UUID — Keycloak and Cognito are — and it authenticates against it
+with no code change. Auth0 is not: its `sub` is `auth0|abc123`, so it needs
+`APP__IDENTITY__OWNER_CLAIM` pointed at a claim that holds a UUID, and if the
+tenant has none, a mapping this service does not have.
 
 Revocation is bounded by `exp` and nothing else. A token stolen with fifteen
 minutes left works for fifteen minutes. If that is unacceptable, the answer is a

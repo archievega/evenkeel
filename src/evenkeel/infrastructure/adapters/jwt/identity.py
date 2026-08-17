@@ -79,11 +79,12 @@ class JwtIdentityProvider(IdentityProvider):
                     "require": ["exp", "iss", "aud", self._policy.owner_claim],
                 },
             )
-        except (jwt.PyJWTError, TypeError, ValueError) as exc:
-            # `TypeError` and `ValueError` are deliberate: PyJWT's claim
+        except (jwt.PyJWTError, TypeError, ValueError, ArithmeticError) as exc:
+            # The non-PyJWT classes are deliberate: PyJWT's claim
             # validators call `int()` on `exp` and `nbf`, so a token whose `exp`
             # is an object raises straight past `PyJWTError` and would reach the
-            # caller as a 500. Which check failed is never returned — "expired"
+            # caller as a 500 — as does `"exp": Infinity`, which `json` accepts
+            # and `int()` answers with `OverflowError`. Which check failed is never returned — "expired"
             # versus "bad signature" tells a forger the signature worked.
             raise _refused(type(exc).__name__) from None
 

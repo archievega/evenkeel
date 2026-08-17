@@ -5,6 +5,7 @@ from sqlalchemy.engine import URL
 LOCAL = "local"
 DEV_IDENTITY = "dev"
 JWT_IDENTITY = "jwt"
+IDENTITY_PROVIDERS = (DEV_IDENTITY, JWT_IDENTITY)
 ALLOW_ALL_RISK = "allow-all"
 HTTP_RISK = "http"
 
@@ -286,6 +287,16 @@ def production_config_problems(settings: Settings) -> list[str]:
     version ended up suppressing itself.
     """
     problems: list[str] = []
+    if settings.app.identity_provider not in IDENTITY_PROVIDERS:
+        # Not a typo check — a fail-open one. The provider used to select the
+        # dev adapter for anything that was not exactly `jwt`, so
+        # `IDENTITY_PROVIDER=JWT` authenticated every caller as whatever UUID
+        # they sent, in production, with the boot guard silent. The second legal
+        # value is what made that reachable, so the guard arrives with it.
+        problems.append(
+            f"app.identity_provider is {settings.app.identity_provider!r}, "
+            f"which is not one of {IDENTITY_PROVIDERS}"
+        )
     if settings.app.identity_provider == JWT_IDENTITY:
         # Caught at boot rather than on the first request: a verifier missing
         # its issuer or audience does not fail closed, it fails *open* for

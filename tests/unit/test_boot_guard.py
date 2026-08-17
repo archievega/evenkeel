@@ -146,3 +146,21 @@ def test_the_default_settings_are_not_production_ready() -> None:
     nothing.
     """
     assert production_config_problems(Settings()) != []
+
+
+@pytest.mark.cwe(1188)
+@pytest.mark.parametrize("value", ["JWT", "Jwt", "jwks", "oidc", ""])
+def test_an_identity_provider_that_is_not_a_known_one_is_refused(value: str) -> None:
+    """The selection used to be `!= "jwt"` means dev.
+
+    So `IDENTITY_PROVIDER=JWT` — the capital-letter version of the edit
+    `.env.example` tells an operator to make — silently chose the adapter that
+    treats the bearer token as the owner id, in production, with the boot guard
+    saying nothing. Every caller was whatever UUID they sent.
+    """
+    settings = hardened()
+    settings.app.identity_provider = value
+
+    problems = production_config_problems(settings)
+
+    assert any("identity_provider" in problem for problem in problems)

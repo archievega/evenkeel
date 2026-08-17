@@ -610,11 +610,12 @@ async def test_a_dribbling_key_set_cannot_hold_the_refresh_open(
     signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
 ) -> None:
     """One byte every 200ms is a live connection making progress, so nothing
-    below the session's own ceiling stops it — and the refresh holds the lock
-    while it runs."""
+    below the fetch's own timeout stops it — and the refresh holds the lock while
+    it runs. That timeout is `JwksPolicy.timeout_ms`; left to the session
+    backstop it was five seconds."""
     async with (
         serving(jwks) as (url, served),
-        provider(url, keys=JwksPolicy(url=url), session_ms=1_500) as identity,
+        provider(url, keys=JwksPolicy(url=url, timeout_ms=1_500)) as identity,
     ):
         served.segment_bytes = 1
         served.segment_delay = 0.2
@@ -625,3 +626,106 @@ async def test_a_dribbling_key_set_cannot_hold_the_refresh_open(
         elapsed = time.perf_counter() - started
 
     assert elapsed < 5, f"{elapsed:.1f}s — the drip was not bounded"
+
+
+@pytest.mark.cwe(347)
+async def test_a_key_published_for_encryption_cannot_verify_a_signature(
+    signing_key: rsa.RSAPrivateKey,
+) -> None:
+    """RFC 7517 §4.2. `PyJWKSet` does not read `use` — `PyJWKClient` does, and
+    that is the class this adapter replaces, so the filter has to be here. The
+    docstring claimed PyJWT did it; it did not, and an issuer publishing its
+    encryption key in the same document had it verifying tokens."""
+    document = {"keys": [{**as_jwk(signing_key, kid=KID), "use": "enc"}]}
+
+    async with serving(document) as (url, _), provider(url) as identity:
+        with pytest.raises(UnauthenticatedError):
+            await identity.authenticate(token(signing_key))
+
+
+@pytest.mark.cwe(755)
+@pytest.mark.parametrize("junk", [1, "a string", ["nested"], None, True])
+async def test_a_key_set_entry_that_is_not_an_object_is_a_503_not_a_crash(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object], junk: object
+) -> None:
+    """`PyJWKSet` calls `.get` on each entry, so a scalar raised `AttributeError`
+    straight past the error translation and answered 500 — and one junk entry
+    stopped the whole set from ever loading."""
+    document = {"keys": [junk, *jwks["keys"]]}  # type: ignore[misc]
+
+    async with serving(document) as (url, _), provider(url) as identity:
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None, "the usable key must survive the junk"
+
+
+@pytest.mark.cwe(613)
+async def test_the_grace_ceiling_holds_inside_the_refresh_floor(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """The floor and the ceiling are different limits and used to fight.
+
+    An early return for "refreshed too recently" handed back the cached key
+    without consulting the ceiling, so for the whole floor window — 30 seconds
+    by default — a key past its grace kept verifying tokens.
+    """
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url,
+            keys=JwksPolicy(
+                url=url,
+                ttl_seconds=0.0,
+                min_refresh_seconds=0.5,
+                max_stale_seconds=0.0,
+            ),
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.status = 500
+        await asyncio.sleep(0.6)
+
+        # Past the floor: this one attempts, fails, and is beyond the ceiling.
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+
+        # Inside the floor: no attempt is made, and the ceiling must still hold.
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+
+    assert served.requests == 2, "the second refusal came from the floor, not a fetch"
+
+
+@pytest.mark.cwe(755)
+async def test_an_outage_inside_the_refresh_floor_is_a_503_not_a_401(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """A client told `401` clears the session and logs the user out. A client
+    told `503` retries. The distinction is the provider's last word, and inside
+    the floor the code used to discard it."""
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url,
+            keys=JwksPolicy(url=url, ttl_seconds=0.0, min_refresh_seconds=60.0),
+        ) as identity,
+    ):
+        served.status = 500
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key))
+        with pytest.raises(DependencyUnavailableError):
+            await identity.authenticate(token(signing_key, kid="rotated"))
+
+    assert served.requests == 1
+
+
+@pytest.mark.cwe(755)
+async def test_a_non_numeric_expiry_is_refused_rather_than_crashing(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """`json` accepts the `Infinity` literal and `int()` answers `OverflowError`,
+    which is not under `PyJWTError` and not a `ValueError`."""
+    async with serving(jwks) as (url, _), provider(url) as identity:
+        for broken in (float("inf"), float("-inf"), {"at": "noon"}, ["soon"]):
+            with pytest.raises(UnauthenticatedError):
+                await identity.authenticate(token(signing_key, exp=broken))

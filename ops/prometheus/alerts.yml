@@ -1,12 +1,10 @@
 # Alert rules, with one rule about the rules: none of them may fire on an idle
 # service.
 #
-# That is not a style preference. The dashboards these accompany were ported
-# from a production service whose Redis memory alert divided by a `maxmemory`
-# nobody had set, so it evaluated against zero and paged on a healthy instance
-# until everyone learned to ignore it — which is the state an alert file dies
-# in. Every ratio here is therefore gated on a minimum request rate, and every
-# rule is evaluated against a running-but-idle stack before it ships.
+# That is not a style preference. An alert that pages on a healthy instance is
+# an alert everyone learns to ignore, and it takes the rest of the file with it.
+# Every ratio here is therefore gated on a minimum request rate, and every rule
+# is evaluated against a running-but-idle stack before it ships.
 #
 # A ratio alone is *nearly* safe: `0/0` is NaN in PromQL and NaN compares false,
 # so an idle service does not fire. The gate is for the case that actually
@@ -81,15 +79,15 @@ groups:
       # different for each.
       - alert: EvenkeelDependencyDegraded
         expr: |
-          sum(rate(evenkeel_external_call_total{outcome!="success"}[5m]))
+          sum by (service) (rate(evenkeel_external_call_total{outcome!="success"}[5m]))
             /
-          sum(rate(evenkeel_external_call_total[5m])) > 0.1
+          sum by (service) (rate(evenkeel_external_call_total[5m])) > 0.1
           and
-          sum(rate(evenkeel_external_call_total[5m])) > 0.2
+          sum by (service) (rate(evenkeel_external_call_total[5m])) > 0.2
         for: 5m
         labels: { severity: warning }
         annotations:
-          summary: An outbound dependency is failing more than 10% of calls
+          summary: "{{ $labels.service }} is failing more than 10% of calls"
           description: >-
             {{ $value | humanizePercentage }} of outbound calls did not
             succeed. Split by `outcome` on the dashboard: `timeout` and

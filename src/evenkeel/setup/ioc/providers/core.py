@@ -32,6 +32,7 @@ from evenkeel.infrastructure.adapters.noop.risk import AllowAllRiskAssessment
 from evenkeel.infrastructure.adapters.system import SystemClock, Uuid7Generator
 from evenkeel.logging import get_logger
 from evenkeel.setup.config import (
+    DEV_IDENTITY,
     HTTP_RISK,
     JWT_IDENTITY,
     AppConfig,
@@ -139,9 +140,14 @@ class InfrastructureProvider(Provider):
         One provider method, which was the claim the `DevIdentityProvider`
         docstring made for months before there was a second adapter to swap in.
         """
-        if app.identity_provider != JWT_IDENTITY:
+        if app.identity_provider == DEV_IDENTITY:
             yield DevIdentityProvider()
             return
+        if app.identity_provider != JWT_IDENTITY:
+            # Belt to the boot guard's braces. `!= JWT_IDENTITY` used to mean
+            # "dev", so a mistyped value was an authentication bypass rather
+            # than a startup failure.
+            raise ValueError(f"unknown identity_provider {app.identity_provider!r}")
 
         from evenkeel.infrastructure.adapters.http.transport import SessionPolicy
         from evenkeel.infrastructure.adapters.jwt.identity import (

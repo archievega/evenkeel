@@ -111,9 +111,12 @@ Plus a `CHECK (balance >= 0)` in the database and the same invariant in the
 entity constructor, which is also the read path
 ([ADR 2](adr/0002-persistence-via-core-not-orm-mapped-entities.md)).
 
-The idempotency key is claimed *before* the work and confirmed after, so a store
-failure in the window after the commit cannot produce a 503 for money that
-already moved ([ADR 8](adr/0008-idempotency-is-claimed-before-the-work.md),
+The idempotency key is claimed *before* the work, so a duplicate cannot apply
+twice. Confirming the receipt happens after the commit, where a store outage is
+logged and swallowed rather than reported — the money has moved, and answering
+`503` would tell the caller otherwise and then block the retry it invites. This
+paragraph claimed the window "cannot" produce a 503 until the day something
+finally made `confirm` raise ([ADR 8](adr/0008-idempotency-is-claimed-before-the-work.md),
 CWE-837). Keys are namespaced per owner, so one tenant's `k-42` cannot collide
 with another's — or report on it (CWE-668).
 

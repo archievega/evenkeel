@@ -7,7 +7,6 @@ from uuid import UUID
 from evenkeel.application.errors import (
     ApplicationErrorCode,
     ConflictError,
-    DependencyUnavailableError,
     NotFoundError,
 )
 from evenkeel.application.ports import (
@@ -276,7 +275,7 @@ class WalletMovementService:
         if request.idempotency_key is None:
             return
         started_at = time.perf_counter()
-        outcome = "success"
+        outcome = "error"
         try:
             await self._idempotency.confirm(
                 self._scoped_key(request),
@@ -286,10 +285,19 @@ class WalletMovementService:
                 },
                 ttl_seconds=self._settings.idempotency_ttl_seconds,
             )
-        except DependencyUnavailableError:
+            outcome = "success"
+        except Exception as exc:
+            # Broad on purpose, and one of the few places it is right: the money
+            # is already committed. Catching only `DependencyUnavailableError`
+            # left the hole half open — `RedisIdempotencyStore.confirm` decodes
+            # the stored record, so a keyspace collision or a shape change
+            # across a deploy raises `JSONDecodeError` or `TypeError`, neither of
+            # which is a `RedisError`, and both escaped as a 500 for a movement
+            # that had succeeded.
             outcome = "unavailable"
             log.warning(
                 "idempotency_confirm_failed",
+                error_type=type(exc).__name__,
                 wallet_id=str(wallet.id_.value),
                 entry_id=str(entry.id_.value),
             )
