@@ -19,6 +19,8 @@ import pytest
 
 aiohttp = pytest.importorskip("aiohttp", reason="requires the `outbound` extra")
 
+from unittest import mock  # noqa: E402
+
 from aiohttp import ClientConnectionError, web  # noqa: E402
 from aiohttp.test_utils import TestServer  # noqa: E402
 
@@ -31,6 +33,7 @@ from evenkeel.infrastructure.adapters.http.transport import (  # noqa: E402
     Failure,
     JsonHttpTransport,
     TransportPolicy,
+    read_capped,
 )
 from evenkeel.infrastructure.adapters.memory.bulkhead import (  # noqa: E402
     InMemoryBulkhead,
@@ -426,3 +429,16 @@ async def test_the_size_cap_applies_after_decompression(
         ).post_json(PATH, {}, operation="assess")
 
     assert response.failure is Failure.OVERSIZED
+
+
+@pytest.mark.cwe(400)
+async def test_read_capped_stops_at_the_limit() -> None:
+    """The endless-body test proves the read terminates. It also passes with the
+    cap raised to 64 MB, so the bound needs asserting where it is exact."""
+    reader = aiohttp.StreamReader(mock.Mock(_reading_paused=False), limit=2**16)
+    reader.feed_data(b"x" * 1_000_000)
+    reader.feed_eof()
+
+    raw = await read_capped(reader, 1_001)
+
+    assert len(raw) == 1_001

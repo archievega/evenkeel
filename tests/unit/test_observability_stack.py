@@ -74,9 +74,11 @@ def exposed() -> tuple[set[str], dict[str, set[str]]]:
 def referenced_metrics(expr: str) -> set[str]:
     """Metric names in a PromQL expression.
 
-    Deliberately crude — every bare identifier that is not a function or a
-    keyword. Over-collecting would make the test fail on something real; the
-    risk is under-collecting, so the exclusion list stays short.
+    Every bare identifier that is not a function or a keyword. Crude on purpose,
+    and the crudeness has to lean towards over-collecting: an under-collecting
+    version let four separate mistakes through, including a misspelled
+    `evenkel_` prefix — the single likeliest rename slip, and invisible to a
+    filter that only looked at names starting with `evenkeel_`.
     """
     keywords = {
         "sum",
@@ -103,17 +105,31 @@ def referenced_metrics(expr: str) -> set[str]:
         "up",
         "job",
     }
-    found = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()", expr))
+    # Quoted strings first: a label *value* like `outcome="bulkhead_full"` is an
+    # identifier by shape and not a metric name, and over-collecting has to stop
+    # somewhere sensible.
+    bare = re.sub(r'"[^"]*"', '""', expr)
+    found = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()", bare))
     return {n for n in found if n not in keywords and not n.isdigit()}
 
 
 def dashboard_exprs() -> list[tuple[str, str]]:
-    dashboard = json.loads(DASHBOARD.read_text())
-    return [
-        (panel["title"], target["expr"])
-        for panel in dashboard["panels"]
-        for target in panel.get("targets", [])
-    ]
+    """Every query in the file, including the ones inside collapsed rows.
+
+    A collapsed row nests its panels under its own `panels` key rather than at
+    the top level, so iterating `dashboard["panels"]` alone examined none of
+    them — collapse a row and its queries stop being checked.
+    """
+
+    def walk(panels: list[dict[str, object]]) -> list[tuple[str, str]]:
+        found: list[tuple[str, str]] = []
+        for panel in panels:
+            for target in panel.get("targets", []) or []:  # type: ignore[union-attr]
+                found.append((str(panel.get("title", "?")), target["expr"]))
+            found.extend(walk(panel.get("panels", []) or []))  # type: ignore[arg-type]
+        return found
+
+    return walk(json.loads(DASHBOARD.read_text())["panels"])
 
 
 def alert_rules() -> list[tuple[str, str]]:
@@ -125,36 +141,47 @@ def alert_rules() -> list[tuple[str, str]]:
     ]
 
 
+def unknown_metrics(expr: str) -> set[str]:
+    """Referenced names that the exposition does not contain.
+
+    Matched against the exact sample names Prometheus scrapes, `_bucket` and
+    all. The previous version stripped `_bucket` from both sides before
+    comparing, which made `evenkeel_http_requests_total_bucket` — a histogram
+    suffix on a counter, and a permanently empty panel — match the counter and
+    pass.
+    """
+    names, labels = exposed()
+    known = names | set(labels)
+    return {n for n in referenced_metrics(expr) if n not in known and "_" in n}
+
+
 @pytest.mark.parametrize(("title", "expr"), dashboard_exprs())
 def test_every_panel_queries_a_metric_that_exists(title: str, expr: str) -> None:
-    names, _ = exposed()
-    referenced = referenced_metrics(expr)
+    assert not (missing := unknown_metrics(expr)), (
+        f"panel {title!r} queries metrics nothing emits: {missing}"
+    )
 
-    missing = {
-        n
-        for n in referenced
-        if n.startswith("evenkeel_")
-        and n not in names
-        and n.removesuffix("_bucket") not in {m.removesuffix("_bucket") for m in names}
+
+@pytest.mark.parametrize(("title", "expr"), dashboard_exprs())
+def test_every_panel_groups_by_a_label_that_exists(title: str, expr: str) -> None:
+    """`sum by (handlr)` is valid PromQL and an empty panel."""
+    _, labels = exposed()
+    emitted = {label for names in labels.values() for label in names} | {"le"}
+
+    grouped = {
+        label.strip()
+        for match in re.findall(r"by\s*\(([^)]*)\)", expr)
+        for label in match.split(",")
     }
 
-    assert not missing, f"panel {title!r} queries metrics nothing emits: {missing}"
+    assert grouped <= emitted, f"panel {title!r} groups by {grouped - emitted}"
 
 
 @pytest.mark.parametrize(("name", "expr"), alert_rules())
 def test_every_alert_watches_a_metric_that_exists(name: str, expr: str) -> None:
-    names, _ = exposed()
-    referenced = referenced_metrics(expr)
-
-    missing = {
-        n
-        for n in referenced
-        if n.startswith("evenkeel_")
-        and n not in names
-        and n.removesuffix("_bucket") not in {m.removesuffix("_bucket") for m in names}
-    }
-
-    assert not missing, f"alert {name!r} watches metrics nothing emits: {missing}"
+    assert not (missing := unknown_metrics(expr)), (
+        f"alert {name!r} watches metrics nothing emits: {missing}"
+    )
 
 
 def test_the_job_the_alerts_name_is_the_job_the_scrape_config_defines() -> None:
@@ -204,14 +231,18 @@ def test_the_latency_buckets_sit_on_the_timeouts_that_shape_them() -> None:
     belong on the guards. This fails if someone retunes the transport and leaves
     the buckets where they were.
     """
-    from evenkeel.infrastructure.adapters.http.transport import TransportPolicy
     from evenkeel.infrastructure.adapters.prometheus.metrics import _REQUEST_BUCKETS
+    from evenkeel.setup.config import OutboundHttpConfig
 
-    policy = TransportPolicy(service="risk")
+    # `OutboundHttpConfig`, not `TransportPolicy`: the composition root builds
+    # the policy from the config, so pinning the dataclass defaults left an
+    # operator free to retune the real numbers with the buckets still where they
+    # were, and this test green.
+    config = OutboundHttpConfig()
 
     for name, ms in (
-        ("per-attempt timeout", policy.total_timeout_ms),
-        ("overall budget", policy.budget_ms),
+        ("per-attempt timeout", config.total_timeout_ms),
+        ("overall budget", config.budget_ms),
     ):
         assert ms / 1000 in _REQUEST_BUCKETS, (
             f"no bucket boundary at the {name} ({ms}ms), so every request that "

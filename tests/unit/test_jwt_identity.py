@@ -30,7 +30,6 @@ pytest.importorskip("jwt", reason="requires the `jwt` extra")
 import aiohttp
 import jwt
 from aiohttp import web
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from evenkeel.application.errors import (
@@ -42,7 +41,11 @@ from evenkeel.infrastructure.adapters.jwt.identity import (
     JwtIdentityProvider,
     JwtPolicy,
 )
-from evenkeel.infrastructure.adapters.jwt.keys import JwksCache, JwksPolicy
+from evenkeel.infrastructure.adapters.jwt.keys import (
+    _MAX_BYTES,
+    JwksCache,
+    JwksPolicy,
+)
 
 ISSUER = "https://issuer.example"
 AUDIENCE = "evenkeel"
@@ -196,43 +199,42 @@ async def test_an_algorithm_outside_the_configured_allowlist_is_refused(
 
 
 @pytest.mark.cwe(347)
-async def test_an_alg_none_token_is_refused(jwks: dict[str, object]) -> None:
-    unsigned = jwt.encode(
-        {"sub": str(uuid4()), "iss": ISSUER, "aud": AUDIENCE, "exp": time.time() + 60},
-        key="",
-        algorithm="none",
-        headers={"kid": KID},
-    )
-
-    async with serving(jwks) as (url, _), provider(url) as identity:
-        with pytest.raises(UnauthenticatedError):
-            await identity.authenticate(unsigned)
-
-
-@pytest.mark.cwe(347)
-async def test_an_hmac_token_signed_with_the_public_key_is_refused(
-    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+async def test_the_verifier_never_offers_an_algorithm_policy_did_not_name(
+    signing_key: rsa.RSAPrivateKey,
+    jwks: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The public key is public; honouring `alg: HS256` makes it the secret."""
-    public_pem = (
-        signing_key.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode()
-    )
-    # Assembled by hand rather than with `jwt.encode`, which refuses to sign
-    # HMAC with a PEM key. That guard is on the signing side, and an attacker is
-    # not using our library to forge.
+    """What the adapter *hands* PyJWT, not what PyJWT does with it.
+
+    This replaces two tests named for `alg: none` and HMAC-with-the-public-key.
+    Both were green against `algorithms=[header["alg"]]`, and green again against
+    the adapter explicitly allowlisting `none` and `HS256` — because PyJWT 2.13
+    refuses a header algorithm that disagrees with the JWKS key, so the library
+    was doing all the work and the tests were testing the library.
+
+    Recording the argument is the only assertion that cannot be satisfied by
+    somebody else's defence. The forged token is what makes the second call's
+    header disagree with policy, which is why one token is not enough.
+    """
+    offered: list[list[str]] = []
+    real = jwt.decode
+
+    def recording(*args: object, **kwargs: object) -> object:
+        offered.append(list(kwargs["algorithms"]))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jwt, "decode", recording)
     forged = forge_hs256(
         {"sub": str(uuid4()), "iss": ISSUER, "aud": AUDIENCE, "exp": time.time() + 60},
-        secret=public_pem,
+        secret="whatever",
     )
 
     async with serving(jwks) as (url, _), provider(url) as identity:
+        await identity.authenticate(token(signing_key))
         with pytest.raises(UnauthenticatedError):
             await identity.authenticate(forged)
+
+    assert offered == [["RS256"], ["RS256"]]
 
 
 @pytest.mark.cwe(347)
@@ -447,7 +449,11 @@ async def test_an_implausibly_large_key_set_is_refused(
     signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
 ) -> None:
     """Endless rather than merely large: a body with a known size proves the
-    length check fires, and the point of the cap is that the read stops."""
+    length check fires, and the point of the cap is that the read stops.
+
+    Termination is all this proves — it passes with `_MAX_BYTES` at 256 MB. The
+    bound itself is `test_the_key_set_cap_is_a_size_somebody_chose` below.
+    """
     async with serving(jwks) as (url, served), provider(url) as identity:
         served.endless = True
         with pytest.raises(DependencyUnavailableError):
@@ -729,3 +735,14 @@ async def test_a_non_numeric_expiry_is_refused_rather_than_crashing(
         for broken in (float("inf"), float("-inf"), {"at": "noon"}, ["soon"]):
             with pytest.raises(UnauthenticatedError):
                 await identity.authenticate(token(signing_key, exp=broken))
+
+
+@pytest.mark.cwe(400)
+def test_the_key_set_cap_is_a_size_somebody_chose() -> None:
+    """The endless-body test above proves the read terminates and nothing more.
+
+    It passes with the cap at 256 MB, which is a memory bound nobody signed off:
+    against a concurrency cap of 32 that is eight gigabytes of key set. A JWKS
+    is a handful of public keys.
+    """
+    assert _MAX_BYTES <= 512 * 1024

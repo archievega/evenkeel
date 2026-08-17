@@ -17,7 +17,6 @@ from dishka.integrations.fastapi import FastapiProvider
 from httpx import ASGITransport, AsyncClient
 from starlette.types import Message, Receive, Scope, Send
 
-from evenkeel.domain.value_objects.ids import OwnerId
 from evenkeel.infrastructure.adapters.noop.metrics import NoopMetrics
 from evenkeel.presentation.http.middleware import ObservabilityMiddleware
 from evenkeel.setup.app_factory import create_app
@@ -105,11 +104,17 @@ async def test_an_error_response_carries_exactly_one_correlation_header(
     The problem document sets the header because the catch-all handler renders
     outside the middleware's wrapper; the wrapper must therefore not add a
     second one when it is already there.
-    """
-    response = await client.get("/v1/wallets/not-a-uuid")
 
+    `/boom` rather than a bad path parameter: this fixture builds the app with
+    no application providers, so `/v1/wallets/not-a-uuid` dies inside dishka and
+    is rendered by `ServerErrorMiddleware` — *outside* `send_wrapper`, where the
+    branch under test cannot run. The test passed with the dedupe deleted.
+    """
+    response = await client.get("/boom")
+
+    assert response.status_code == 500
     values = [v for k, v in response.headers.multi_items() if k == "x-correlation-id"]
-    assert len(values) == 1
+    assert len(values) == 1, values
     assert "," not in values[0]
 
 
@@ -194,7 +199,7 @@ async def test_every_started_request_is_accounted_for(
     ],
 )
 async def test_a_hostile_correlation_id_is_replaced(
-    client: AsyncClient, owner_id: OwnerId, supplied: str, why: str
+    client: AsyncClient, supplied: str, why: str
 ) -> None:
     """Whatever arrives is echoed into a response header, bound into every log
     line, and forwarded to providers as an outbound header.
@@ -204,13 +209,7 @@ async def test_a_hostile_correlation_id_is_replaced(
     raised out of `aiohttp` as a 500. A fresh id is substituted rather than the
     request refused — a malformed trace header is not a reason to fail a call.
     """
-    response = await client.get(
-        "/v1/wallets",
-        headers={
-            "Authorization": f"Bearer {owner_id.value}",
-            "X-Correlation-Id": supplied,
-        },
-    )
+    response = await client.get("/boom", headers={"X-Correlation-Id": supplied})
 
     echoed = response.headers["x-correlation-id"]
     assert echoed != supplied, why
@@ -218,19 +217,14 @@ async def test_a_hostile_correlation_id_is_replaced(
 
 
 @pytest.mark.cwe(93)
-async def test_a_well_formed_correlation_id_is_kept(
-    client: AsyncClient, owner_id: OwnerId
-) -> None:
+async def test_a_well_formed_correlation_id_is_kept(client: AsyncClient) -> None:
     """The point of the header is that one id spans several systems. Replacing
     a usable one would break the join it exists for."""
-    supplied = "018f4b2c-0000-7000-8000-000000000000"
+    # A W3C `traceparent`, which is the shape the 128-character allowance in
+    # `_CORRELATION_SHAPE` exists for. A UUID would prove nothing new: an older
+    # test already sends one.
+    supplied = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
-    response = await client.get(
-        "/v1/wallets",
-        headers={
-            "Authorization": f"Bearer {owner_id.value}",
-            "X-Correlation-Id": supplied,
-        },
-    )
+    response = await client.get("/boom", headers={"X-Correlation-Id": supplied})
 
     assert response.headers["x-correlation-id"] == supplied
