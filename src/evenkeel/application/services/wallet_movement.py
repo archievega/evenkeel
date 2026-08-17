@@ -7,6 +7,7 @@ from uuid import UUID
 from evenkeel.application.errors import (
     ApplicationErrorCode,
     ConflictError,
+    DependencyUnavailableError,
     NotFoundError,
 )
 from evenkeel.application.ports import (
@@ -25,6 +26,9 @@ from evenkeel.domain.entities.wallet import Wallet
 from evenkeel.domain.errors import DomainError
 from evenkeel.domain.value_objects.ids import LedgerEntryId, OwnerId, WalletId
 from evenkeel.domain.value_objects.money import Money
+from evenkeel.logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,16 +256,54 @@ class WalletMovementService:
     async def _confirm(
         self, request: MovementRequest, wallet: Wallet, entry: LedgerEntry
     ) -> None:
+        """Store the receipt, and never fail the caller for not managing to.
+
+        This runs after the commit, so by the time it is reached the money has
+        moved and the entry exists. Letting a store outage out of here answered
+        `503` for a movement that had succeeded — and worse, the reservation
+        stayed unconfirmed, so the retry it invited got `409 MOVEMENT_IN_PROGRESS`
+        for the whole 24-hour key lifetime. The caller was told their movement
+        failed, then prevented from doing it again.
+
+        ADR 8 always described this window honestly; two other documents claimed
+        it could not happen, and no test made `confirm` raise. Now one does.
+
+        Swallowing it costs the receipt: a retry within the key's lifetime gets
+        `409` rather than a replay of the original response. That is the safe
+        direction — it never applies the movement twice — and the caller who
+        made the request has their answer.
+        """
         if request.idempotency_key is None:
             return
-        await self._idempotency.confirm(
-            self._scoped_key(request),
-            response={
-                "entry_id": str(entry.id_.value),
-                "wallet_id": str(wallet.id_.value),
-            },
-            ttl_seconds=self._settings.idempotency_ttl_seconds,
-        )
+        started_at = time.perf_counter()
+        outcome = "success"
+        try:
+            await self._idempotency.confirm(
+                self._scoped_key(request),
+                response={
+                    "entry_id": str(entry.id_.value),
+                    "wallet_id": str(wallet.id_.value),
+                },
+                ttl_seconds=self._settings.idempotency_ttl_seconds,
+            )
+        except DependencyUnavailableError:
+            outcome = "unavailable"
+            log.warning(
+                "idempotency_confirm_failed",
+                wallet_id=str(wallet.id_.value),
+                entry_id=str(entry.id_.value),
+            )
+        finally:
+            # On the existing outbound counter rather than a new port method:
+            # the idempotency store is a dependency like any other, and one
+            # counter is not worth a port, two adapters, a conformance entry
+            # and a dashboard row.
+            self._metrics.observe_external_call(
+                service="idempotency",
+                operation="confirm",
+                outcome=outcome,
+                duration_seconds=time.perf_counter() - started_at,
+            )
 
     async def _release(self, request: MovementRequest) -> None:
         if request.idempotency_key is None:

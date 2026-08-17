@@ -91,3 +91,28 @@ retry is protected; there is no setting that avoids the trade.
 **Both adapters are held to the same eight rules** by the contract suite, which
 is what makes the in-memory store trustworthy in tests. The `SET ... EX 0` case
 that started that suite is still in it.
+
+## Amendment, 2026-08-17
+
+The residual window described above was real, and worse than this document
+implied — not because the analysis was wrong, but because nothing acted on it.
+`confirm` raising after the commit propagated: the caller received `503` for a
+movement that had succeeded, and because the reservation stayed unconfirmed,
+every retry it invited answered `409 MOVEMENT_IN_PROGRESS` until the key expired
+a day later. Told it failed, then stopped from trying again.
+
+Two other documents had upgraded this ADR's careful "does not double-spend" into
+"cannot produce a 503", and cited tests that never made `confirm` raise. Found by
+an agent asked to attack an unrelated design, and reproduced before it was
+believed: balance 100 → 90, response 503, retry 409.
+
+`confirm` failures are now logged, counted on the outbound call metric as
+`service="idempotency"`, and swallowed. The cost is the receipt: a retry inside
+the key's lifetime gets `409` rather than a replay of the original response. That
+is the safe direction — it still cannot apply the movement twice — and the caller
+who made the request has their answer.
+
+The durable fix is to move the idempotency record into the same transaction as
+the movement, which means a Postgres adapter for `IdempotencyStore` and a second
+connection for the reservation, since that must commit independently. That is a
+real slice and it is not this one.

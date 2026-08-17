@@ -5,7 +5,14 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from evenkeel.application.errors import (
+    ApplicationErrorCode,
+    DependencyUnavailableError,
+)
 from evenkeel.domain.value_objects.ids import OwnerId
+from evenkeel.infrastructure.adapters.memory.idempotency import (
+    InMemoryIdempotencyStore,
+)
 
 
 def auth(owner_id: OwnerId) -> dict[str, str]:
@@ -378,3 +385,47 @@ async def test_pagination_walks_every_page_without_gaps_or_repeats(
     assert cursor is None, "never reached the last page"
     assert sorted(seen) == sorted(opened)
     assert len(seen) == len(set(seen)), "a wallet appeared on two pages"
+
+
+@pytest.mark.cwe(837)
+async def test_a_store_outage_after_the_commit_does_not_report_failure(
+    client: AsyncClient, owner_id: OwnerId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The receipt is written after the commit, so by then the money has moved.
+
+    Letting the store's outage out answered `503` for a movement that had
+    succeeded — and the reservation stayed unconfirmed, so the retry that 503
+    invited got `409 MOVEMENT_IN_PROGRESS` for the key's whole 24-hour life. The
+    caller was told it failed and then stopped from doing it again.
+
+    `docs/SECURITY_CONTROLS.md` claimed this could not happen and cited two
+    tests, neither of which made `confirm` raise. This one does.
+    """
+    headers = {"Authorization": f"Bearer {owner_id.value}"}
+    wallet = await client.post("/v1/wallets", json={"currency": "EUR"}, headers=headers)
+    wallet_id = wallet.json()["id"]
+    await client.post(
+        f"/v1/wallets/{wallet_id}/deposits",
+        json={"amount": "100.00", "currency": "EUR"},
+        headers=headers,
+    )
+
+    async def unavailable(*args: object, **kwargs: object) -> None:
+        raise DependencyUnavailableError(
+            ApplicationErrorCode.DEPENDENCY_UNAVAILABLE,
+            details={"dependency": "idempotency"},
+        )
+
+    monkeypatch.setattr(InMemoryIdempotencyStore, "confirm", unavailable)
+
+    response = await client.post(
+        f"/v1/wallets/{wallet_id}/withdrawals",
+        json={"amount": "10.00", "currency": "EUR"},
+        headers={**headers, "Idempotency-Key": "k-confirm-outage"},
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["balance"] == "90.00"
+
+    balance = await client.get(f"/v1/wallets/{wallet_id}", headers=headers)
+    assert balance.json()["balance"] == "90.00", "the movement is real, not rolled back"
