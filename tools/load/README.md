@@ -23,7 +23,7 @@ docker run --rm -i --network evenkeel_default -e BASE_URL=http://api:8000 \
 ```
 
 ```bash
-curl -s localhost:8000/metrics | grep evenkeel_external_call_total
+curl -s localhost:58000/metrics | grep evenkeel_external_call_total
 ```
 
 Or read it on a dashboard instead of in a grep — `make observe` brings the same

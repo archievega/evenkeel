@@ -3,6 +3,7 @@
 UV ?= uv
 SRC := src tests
 COMPOSE_NETWORK ?= evenkeel_default
+export API_PORT ?= 58000
 export GRAFANA_PORT ?= 3000
 export PROMETHEUS_PORT ?= 9090
 # The degraded-provider profile, because a dashboard of a healthy service shows
@@ -187,12 +188,23 @@ observe: ## Bring up the stack with Prometheus and Grafana (localhost:3000)
 	RISK_LATENCY_MS=$(RISK_LATENCY_MS) RISK_BULKHEAD_LIMIT=$(RISK_BULKHEAD_LIMIT) \
 	docker compose -f compose.yml -f compose.observability.yml \
 		--profile load up -d --wait
+	@echo "  api        http://localhost:$(API_PORT)"
 	@echo "  grafana    http://localhost:$(GRAFANA_PORT)"
 	@echo "  prometheus http://localhost:$(PROMETHEUS_PORT)"
 	@echo "  next: make load"
 
 dashboard-image: ## Re-render docs/img/dashboard.png (needs `make observe` plus --profile render)
 	$(call step,dashboard-image)
+	@# Checked before the load run, not after it. Without the renderer this
+	@# used to spend two minutes generating traffic and then fail on a bare
+	@# `curl: (22) ... error 500`.
+	@curl -sfS -o /dev/null "http://localhost:$(GRAFANA_PORT)/api/health" \
+		|| { echo "  grafana is not up: run 'make observe' first"; exit 1; }
+	@docker compose -f compose.yml -f compose.observability.yml ps --services \
+		--filter status=running | grep -qx renderer \
+		|| { echo "  the renderer is not running. It is behind its own profile:"; \
+		     echo "  docker compose -f compose.yml -f compose.observability.yml \\"; \
+		     echo "    --profile load --profile render up -d --wait"; exit 1; }
 	@mkdir -p docs/img
 	@# k6 exits 99 when a threshold is crossed, and this profile crosses them on
 	@# purpose — the provider is configured to be slow. The picture is the point.

@@ -32,7 +32,14 @@ services:
       # Bound to loopback. Publishing on 0.0.0.0 exposes a development stack --
       # debug on, docs open, default password -- to the whole local network and,
       # on a cloud host, to the internet.
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      #
+      # And off 8000, for the reason already written against the database port
+      # below: 8000 is the port every other local API is already using, so a
+      # template that grabs it greets a stranger with a Docker networking error
+      # instead of a working service. That is not hypothetical -- it is what a
+      # cold-start run of the documented commands did on the machine this was
+      # written on.
+      - "127.0.0.1:${API_PORT:-58000}:8000"
     depends_on:
       db:
         condition: service_healthy
