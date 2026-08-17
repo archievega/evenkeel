@@ -146,6 +146,13 @@ class JwksCache:
         #
         # `use` is filtered here because `PyJWKSet` never reads it (RFC 7517
         # §4.2), and `isinstance` because it calls `.get` on every entry.
+        #
+        # A set with entries but none we can build is *not* read as revocation:
+        # `PyJWKSet` raises, that becomes a 503, and the stale keys keep serving
+        # until the ceiling. Deliberate — "no key here is one we understand" is
+        # far more likely to be our library than the issuer withdrawing
+        # everything, and a missing `cryptography` should not log every user
+        # out. An explicitly empty list still revokes.
         signing = [
             entry
             for entry in entries

@@ -427,5 +427,8 @@ async def test_a_store_outage_after_the_commit_does_not_report_failure(
     assert response.status_code == 200, response.json()
     assert response.json()["balance"] == "90.00"
 
+    # Re-read rather than trust the response body. It cannot fail for a rollback
+    # here — the fakes have no rollback semantics — but it does catch a response
+    # that reports a balance the store never held.
     balance = await client.get(f"/v1/wallets/{wallet_id}", headers=headers)
-    assert balance.json()["balance"] == "90.00", "the movement is real, not rolled back"
+    assert balance.json()["balance"] == "90.00"

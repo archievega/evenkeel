@@ -49,7 +49,9 @@ the offered load is the same.
 ## The provider's latency is the whole story
 
 Same code, same 200 writes/s + 50 reads/s, same 40 wallets. Only the stub's
-dials moved, and `p95` for writes moved with them:
+dials moved. All three rows are k6's client-side numbers for the **writes**
+scenario — not comparable with the dashboard's request-latency panel, which
+mixes in the reads and measures server-side:
 
 | provider | p50 | p95 | p99 |
 | --- | --- | --- | --- |
@@ -58,10 +60,12 @@ dials moved, and `p95` for writes moved with them:
 | 700 ms — the profile behind the README screenshot | 0.8 ms | 1.43 s | 1.45 s |
 
 The third row is not this service being slow. A 700 ms provider behind a cap of
-32 completes roughly `32 / 1.5s ≈ 21` calls a second once a retry is counted,
-against 200 offered — so nine in ten are shed in under a millisecond, which is
-why the *median* is 0.8 ms, and the ones that get a slot run out the 1500 ms
-budget. `p95 = 1.43 s` is the budget, not the work.
+32 clears on the order of `32 / 1.5s ≈ 21` calls a second once a retry is
+counted — measured throughput past the bulkhead was about 15/s — against 200
+offered. So nine in ten are shed in under a millisecond, which is why the
+*median* is 0.8 ms, and most of the rest sit against the 1500 ms budget: of the
+admitted calls roughly a third succeeded and two thirds timed out. `p95 = 1.43 s`
+is the budget, not the work.
 
 **And the first row is not a latency benchmark either.** Two identical runs of
 it gave `p95` 32 ms and 54 ms, `p99` 87 ms and 154 ms — a factor of two between

@@ -159,8 +159,9 @@ The picture exists because a degraded dependency is the only condition under
 which the middle row has anything to say.
 
 ```bash
-make observe   # api + postgres + prometheus + grafana; grafana on localhost:3000
+make observe   # api, postgres, the stalling stub, prometheus, grafana (:3000)
 make load      # 200 writes/s for 30s against the stalling provider
+make down      # stop all of it, overlay and volumes included
 ```
 
 `make dashboard-image` regenerates it, with the `render` profile up:

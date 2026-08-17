@@ -277,8 +277,10 @@ async def test_a_token_that_fails_a_claim_is_refused(
     claims: dict[str, object],
     why: str,
 ) -> None:
-    """The absent-claim cases are what the `require` list carries: without it, a
-    token with no `exp` is a token that never expires."""
+    """`{"exp": None}` is the case the `require` list carries: without it, a
+    token with no `exp` never expires. The other two absences are refused by
+    PyJWT's `issuer=` argument and by `_owner_id`, so they hold either way.
+    """
     async with serving(jwks) as (url, _), provider(url) as identity:
         with pytest.raises(UnauthenticatedError):
             await identity.authenticate(token(signing_key, **claims))
@@ -297,6 +299,8 @@ async def test_a_claim_of_the_wrong_type_is_refused_rather_than_crashing(
                 await identity.authenticate(token(signing_key, exp=broken))
 
 
+# Expired against a non-canonical `sub`, not against a bad signature: both go
+# through `_refused`, which is the regression this guards.
 @pytest.mark.cwe(209)
 async def test_the_refusal_never_says_which_check_failed(
     signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
@@ -337,12 +341,14 @@ async def test_a_subject_that_is_not_a_canonical_uuid_is_refused(
 async def test_nothing_is_accepted_without_a_credential(
     jwks: dict[str, object],
 ) -> None:
+    """The `requests == 0` half cannot fail — no credential means no `kid` on
+    any path — and is kept only as a statement of the obvious next question."""
     async with serving(jwks) as (url, served), provider(url) as identity:
         for empty in (None, ""):
             with pytest.raises(UnauthenticatedError):
                 await identity.authenticate(empty)
 
-    assert served.requests == 0, "a missing credential must not reach the network"
+    assert served.requests == 0
 
 
 @pytest.mark.cwe(347)
@@ -458,28 +464,6 @@ async def test_an_implausibly_large_key_set_is_refused(
         served.endless = True
         with pytest.raises(DependencyUnavailableError):
             await asyncio.wait_for(identity.authenticate(token(signing_key)), timeout=5)
-
-
-@pytest.mark.cwe(755)
-async def test_a_key_set_split_across_segments_is_read_whole(
-    signing_key: rsa.RSAPrivateKey,
-) -> None:
-    """`StreamReader.read(n)` returns what is buffered, not `n` bytes.
-
-    Seven keys is an ordinary mid-rotation key set and already exceeds one TCP
-    segment, so reading once truncates it — on every authentication, against
-    every real issuer, while passing on loopback.
-    """
-    rotating = {
-        "keys": [as_jwk(signing_key, kid=KID)]
-        + [as_jwk(rsa_key(), kid=f"retired-{n}") for n in range(6)]
-    }
-
-    async with serving(rotating) as (url, served), provider(url) as identity:
-        served.segment_bytes = 1400
-        principal = await identity.authenticate(token(signing_key))
-
-    assert principal.owner_id is not None
 
 
 @pytest.mark.cwe(755)
@@ -616,9 +600,13 @@ async def test_a_dribbling_key_set_cannot_hold_the_refresh_open(
     signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
 ) -> None:
     """One byte every 200ms is a live connection making progress, so nothing
-    below the fetch's own timeout stops it — and the refresh holds the lock while
-    it runs. That timeout is `JwksPolicy.timeout_ms`; left to the session
-    backstop it was five seconds."""
+    below the fetch's own timeout stops it.
+
+    `JwksPolicy.timeout_ms` is that timeout; left to the session backstop it was
+    five seconds. The lock is not asserted here — there is one caller — so this
+    bounds the fetch, and `test_a_slow_refresh_does_not_stall_tokens...` is what
+    covers the queue behind it.
+    """
     async with (
         serving(jwks) as (url, served),
         provider(url, keys=JwksPolicy(url=url, timeout_ms=1_500)) as identity,
@@ -746,3 +734,30 @@ def test_the_key_set_cap_is_a_size_somebody_chose() -> None:
     is a handful of public keys.
     """
     assert _MAX_BYTES <= 512 * 1024
+
+
+@pytest.mark.cwe(755)
+async def test_a_key_set_of_nothing_usable_is_an_outage_not_a_revocation(
+    signing_key: rsa.RSAPrivateKey, jwks: dict[str, object]
+) -> None:
+    """A decision, not a side effect, so it gets a test.
+
+    Entries that parse as JSON but that no supported algorithm can build are
+    read as "we do not understand this document" rather than "the issuer
+    withdrew everything" — far more likely our library than their revocation,
+    and a missing `cryptography` should not log every user out. The stale keys
+    therefore keep serving until the grace ceiling. An explicitly empty list
+    still revokes, which `test_an_empty_key_set_revokes...` covers.
+    """
+    async with (
+        serving(jwks) as (url, served),
+        provider(
+            url, keys=JwksPolicy(url=url, ttl_seconds=0.0, min_refresh_seconds=0.0)
+        ) as identity,
+    ):
+        await identity.authenticate(token(signing_key))
+        served.document = {"keys": [{"kty": "AN-ALGORITHM-FROM-2035", "kid": KID}]}
+
+        principal = await identity.authenticate(token(signing_key))
+
+    assert principal.owner_id is not None

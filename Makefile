@@ -7,12 +7,9 @@ export API_PORT ?= 58000
 export GRAFANA_PORT ?= 3000
 export PROMETHEUS_PORT ?= 9090
 # The degraded-provider profile, because a dashboard of a healthy service shows
-# nothing that a dashboard of any healthy service would not.
+# nothing that a dashboard of any healthy service would not. The bulkhead limit
+# is not passed: compose already defaults it to 32.
 RISK_LATENCY_MS ?= 700
-RISK_BULKHEAD_LIMIT ?= 32
-# Longer than the 30s of a normal load run: a one-minute rate window over a 30s
-# burst draws a triangle, and the panels are easier to read as a plateau.
-IMAGE_LOAD_DURATION ?= 2m
 
 # Colour only when a human is watching.
 #
@@ -53,7 +50,7 @@ step = @printf '$(CYAN)$(BOLD)▸$(RESET) $(BOLD)%s$(RESET)\n' $(1)
 GATES := lint arch types schema-check test
 
 .PHONY: help sync fmt lint arch types schema schema-check test test-integration \
-	check run run-mcp migrate revision new-vertical docs demo load observe \
+	check run run-mcp migrate revision new-vertical docs demo load observe down \
 	dashboard-image clean
 
 ##@ General
@@ -185,7 +182,7 @@ demo: ## Re-record docs/demo.gif (needs a running stack)
 observe: ## Bring up the stack with Prometheus and Grafana (localhost:3000)
 	$(call step,observe)
 	METRICS_ENABLED=true RISK_PROVIDER=http RATE_LIMIT=1000000 \
-	RISK_LATENCY_MS=$(RISK_LATENCY_MS) RISK_BULKHEAD_LIMIT=$(RISK_BULKHEAD_LIMIT) \
+	RISK_LATENCY_MS=$(RISK_LATENCY_MS) \
 	docker compose -f compose.yml -f compose.observability.yml \
 		--profile load up -d --wait
 	@echo "  api        http://localhost:$(API_PORT)"
@@ -195,6 +192,8 @@ observe: ## Bring up the stack with Prometheus and Grafana (localhost:3000)
 
 dashboard-image: ## Re-render docs/img/dashboard.png (needs `make observe` plus --profile render)
 	$(call step,dashboard-image)
+	@# Two minutes rather than the usual thirty seconds: a one-minute rate
+	@# window over a 30s burst draws a triangle, and a plateau reads better.
 	@# Checked before the load run, not after it. Without the renderer this
 	@# used to spend two minutes generating traffic and then fail on a bare
 	@# `curl: (22) ... error 500`.
@@ -209,12 +208,22 @@ dashboard-image: ## Re-render docs/img/dashboard.png (needs `make observe` plus 
 	@# k6 exits 99 when a threshold is crossed, and this profile crosses them on
 	@# purpose — the provider is configured to be slow. The picture is the point.
 	@docker run --rm -i --network $(COMPOSE_NETWORK) -e BASE_URL=http://api:8000 \
-		-e DURATION=$(IMAGE_LOAD_DURATION) grafana/k6 run - \
+		-e DURATION=2m grafana/k6 run - \
 		< tools/load/wallets.js >/dev/null 2>&1 || true
 	@sleep 10
 	@curl -sfS -o docs/img/dashboard.png \
 		"http://localhost:$(GRAFANA_PORT)/render/d/evenkeel-service?from=now-3m&to=now&width=1600&height=1250&scale=2&kiosk&theme=light"
 	@echo "  wrote docs/img/dashboard.png"
+
+down: ## Stop everything, including the observability overlay and its volumes
+	$(call step,down)
+	@# Both files and every profile. `docker compose down -v` alone leaves the
+	@# overlay's containers and volumes running, because compose only knows
+	@# about the services in the files it was given — so after `make observe`
+	@# there was no documented way to tear the stack down, and the next plain
+	@# `docker compose up --wait` failed against the leftovers.
+	docker compose -f compose.yml -f compose.observability.yml \
+		--profile load --profile redis --profile render down -v --remove-orphans
 
 load: ## Drive the API under k6 (needs a running stack, see tools/load/README.md)
 	$(call step,load)
