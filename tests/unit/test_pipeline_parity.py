@@ -15,6 +15,7 @@ grouping is wrong.
 """
 
 import pathlib
+import re
 
 import pytest
 
@@ -85,3 +86,21 @@ def test_the_mirror_claim_is_the_thing_under_test() -> None:
     """If the header ever stops claiming a mirror, this file should stop
     claiming to enforce one."""
     assert "Mirror of .github/workflows/ci.yml" in GITLAB_SOURCE
+
+
+def test_the_smoke_jobs_probe_the_port_compose_publishes() -> None:
+    """Moving the published port broke both smoke jobs and neither test noticed.
+
+    `make check` does not run them — they need Docker — so the first sign was
+    three red checks on `main`. The port lives in `compose.yml`; the two
+    pipelines quote it as a literal, which is the kind of duplication that only
+    a check like this one keeps honest.
+    """
+    published = re.search(r"API_PORT:-(\d+)\}:8000", (ROOT / "compose.yml").read_text())
+    assert published, "compose.yml no longer publishes the api on a default port"
+    port = published.group(1)
+
+    for name, pipeline in (("github", GITHUB), ("gitlab", GITLAB)):
+        probes = set(re.findall(r"(?:localhost|127\.0\.0\.1):(\d+)/ready", pipeline))
+        assert probes, f"{name} no longer probes readiness"
+        assert probes == {port}, f"{name} probes {probes}, compose publishes {port}"

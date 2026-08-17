@@ -168,7 +168,7 @@ smoke:
     # migrations apply, and the app can reach its database.
     - docker compose up -d --build --wait
     - docker compose exec -T api python -c "import urllib.request,sys;
-      b=urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode();
+      b=urllib.request.urlopen('http://127.0.0.1:58000/ready').read().decode();
       print(b); sys.exit(0 if '\"status\":\"ready\"' in b else 1)"
   after_script:
     - docker compose logs --no-color || true

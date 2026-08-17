@@ -57,7 +57,13 @@ ENV APP_VERSION=${APP_VERSION} \
     APP_COMMIT=${APP_COMMIT} \
     APP_BUILT_AT=${APP_BUILT_AT}
 
+# `upgrade` as well as `install`: a pinned base tag still accumulates published
+# CVEs between upstream rebuilds, and the scan gate fails on fixed HIGH findings
+# — nine of them, all Debian packages, the day this line was added. It costs
+# reproducibility that the pinned tag never really had, since Debian security
+# updates land in the same tag.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${APP_UID} app \

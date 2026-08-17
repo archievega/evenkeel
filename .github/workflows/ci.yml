@@ -222,7 +222,7 @@ jobs:
       # migrations apply, and the app can reach its database.
       - name: readiness reports ready
         run: |
-          body=$(curl -fsS localhost:8000/ready)
+          body=$(curl -fsS localhost:58000/ready)
           echo "$body"
           echo "$body" | grep -q '"status":"ready"'
       - name: logs on failure
